@@ -7,15 +7,21 @@
 """Read NMEA sentences from a socket, then publish them to MQTT."""
 import datetime
 import json
+import operator
 import re
 import socket
 import time
 from collections import defaultdict
+from functools import reduce
 from typing import Dict, Any
 
 import paho.mqtt.client as mqtt
 
 from config import *
+
+
+class UnknownNMEASentence(ValueError):
+    "Raised whe an unknown NMEA sentence is received."
 
 # MQTT setup
 mqtt_client = mqtt.Client(callback_api_version=2)
@@ -31,6 +37,19 @@ last_published = defaultdict(lambda: 0)
 def publish_nmea(nmea_sentence):
     """Publish parsed NMEA data to MQTT."""
     global last_published
+
+    if not nmea_sentence.startswith("$"):
+        raise ValueError(f"Invalid NMEA sentence '{nmea_sentence}'")
+
+    # If it's present, check the checksum
+    asterick = nmea_sentence.find('*')
+    if asterick != -1:
+        cs = checksum(nmea_sentence[1:asterick])
+        cs_msg = int(nmea_sentence[asterick+1:], 16)
+        if cs != cs_msg:
+            print(f"Checksum mismatch for sentence {nmea_sentence}")
+        # Strip off the checksum:
+        nmea_sentence = nmea_sentence[:asterick]
     sentence_type = nmea_sentence[3:6]  # Extract sentence type (e.g., GGA, RMC)
 
     if sentence_type not in PUBLISH_INTERVALS:
@@ -40,11 +59,15 @@ def publish_nmea(nmea_sentence):
     if current_time - last_published[sentence_type] < PUBLISH_INTERVALS[sentence_type]:
         return  # Skip publishing if within rate limit
 
-    parsed_data = parse_nmea(nmea_sentence)
-    if parsed_data:
-        topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{sentence_type}"
-        mqtt_client.publish(topic, json.dumps(parsed_data))
-        last_published[sentence_type] = current_time
+    try:
+        parsed_data = parse_nmea(nmea_sentence)
+    except UnknownNMEASentence as e:
+        print("UnknownNMEASentence", e)
+    else:
+        if parsed_data:
+            topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{sentence_type}"
+            mqtt_client.publish(topic, json.dumps(parsed_data))
+            last_published[sentence_type] = current_time
 
 
 # Socket listener
@@ -61,9 +84,6 @@ def listen_nmea():
 
 def parse_nmea(sentence: str) -> Dict[str, Any]:
     """Parses an NMEA 0183 sentence into a dictionary."""
-    if not sentence.startswith("$"):
-        raise ValueError("Invalid NMEA sentence")
-
     parts = sentence.strip().split(',')
     sentence_type = parts[0][3:]
 
@@ -73,8 +93,11 @@ def parse_nmea(sentence: str) -> Dict[str, Any]:
             "longitude": parse_longitude(parts[3], parts[4]),
             "timeUTC": parse_time(parts[5][0:6]),
             "status": parts[6],
-            "mode": parts[7][0] if len(parts[7]) > 0 else None
         }
+        try:
+            data["mode"] = parts[7][0]
+        except IndexError:
+            data["mode"] = None
 
     elif sentence_type == "GGA":  # Global Positioning System Fix Data
         data = {
@@ -82,17 +105,17 @@ def parse_nmea(sentence: str) -> Dict[str, Any]:
             "latitude": parse_latitude(parts[2], parts[3]),
             "longitude": parse_longitude(parts[4], parts[5]),
             "fix_quality": parts[6],
-            "num_satellites": int(parts[7]) if parts[7] else None,
-            "hdop": float(parts[8]) if parts[8] else None,
+            "num_satellites": parse_int(parts[7]),
+            "hdop": parse_float(parts[8]),
             "altitude": parse_float(parts[9]),
             "altitude_units": parts[10]
         }
 
     elif sentence_type == "GSV":  # Satellites in View
         data = {
-            "num_messages": int(parts[1]) if parts[1] else None,
-            "message_number": int(parts[2]) if parts[2] else None,
-            "num_satellites": int(parts[3]) if parts[3] else None,
+            "num_messages": parse_int(parts[1]),
+            "message_number": parse_int(parts[2]),
+            "num_satellites": parse_int(parts[3]),
             "satellites": []
         }
         for i in range(4, len(parts) - 4, 4):
@@ -157,14 +180,18 @@ def parse_nmea(sentence: str) -> Dict[str, Any]:
         }
 
     else:
-        raise ValueError("Unsupported NMEA sentence type")
+        raise UnknownNMEASentence(f"Unsupported NMEA sentence type {sentence_type}")
 
     return data
 
 
-def parse_time(time_str: str):
+def checksum(nmea_str):
+    return reduce(operator.xor, map(ord, nmea_str), 0)
+
+
+def parse_time(time_str: str) -> str:
+    """Parses a time string of the form HHMMSS.SS into hours, minutes, and seconds."""
     try:
-        """Parses a time string of the form HHMMSS.SS into hours, minutes, and seconds."""
         hours = int(time_str[:2])
         minutes = int(time_str[2:4])
         seconds = round(float(time_str[4:]))
@@ -172,17 +199,20 @@ def parse_time(time_str: str):
         return None
     return f"{hours:02}:{minutes:02}:{seconds:02}"
 
-def parse_datetime(date_str: str, time_str: str):
+def parse_datetime(date_str: str, time_str: str) -> str:
+    """Parses a date string of the form DDMMYY and time string of the form HHMMSS.SS."""
     hours = int(time_str[:2])
     minutes = int(time_str[2:4])
     seconds = round(float(time_str[4:]))
     day = int(date_str[:2])
     month = int(date_str[2:4])
-    year = int(date_str[4:]) + 2000
+    year = int(date_str[4:])
+    if year < 2000:
+        year += 2000
     dt = datetime.datetime(year, month, day, hours, minutes, seconds)
     return dt.isoformat()
 
-def dm_to_sd(dm: str|None):
+def dm_to_sd(dm: str|None) -> float:
     """
     Converts a geographic co-ordinate given in "degrees/minutes" dddmm.mmmm
     format (eg, "12319.943281" = 123 degrees, 19.943281 minutes) to a signed
@@ -202,30 +232,38 @@ def dm_to_sd(dm: str|None):
     return float(d) + float(m) / 60
 
 
-def parse_latitude(latitude: str, hemisphere: str = 'N'):
+def parse_latitude(latitude: str, hemisphere: str = 'N') -> float:
     val = dm_to_sd(latitude)
     if hemisphere == 'S':
         val = -val
     return val
 
 
-def parse_longitude(longitude: str, hemisphere: str = 'E'):
+def parse_longitude(longitude: str, hemisphere: str = 'E') -> float:
     val = dm_to_sd(longitude)
     if hemisphere == 'W':
         val = -val
     return val
 
-def parse_float(float_str: str):
+def parse_float(float_str: str) -> float:
     if float_str is None or float_str == '':
         return None
-
     try:
         return float(float_str)
     except ValueError:
         return None
 
 
-def is_number(string):
+def parse_int(int_str: str) -> int:
+    if int_str is None or int_str == '':
+        return None
+    try:
+        return int(int_str)
+    except ValueError:
+        return None
+
+
+def is_number(string) -> bool:
     try:
         float(string)
         return True
