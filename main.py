@@ -59,6 +59,8 @@ def publish_nmea(mqtt_client: mqtt.Client, nmea_sentence: str):
         print("UnknownNMEASentence", e)
     else:
         if parsed_data:
+            parsed_data["sentence_type"] = sentence_type.upper()
+            parsed_data["timestamp"] = int(time.time() + 0.5)
             topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{sentence_type}"
             mqtt_client.publish(topic, json.dumps(parsed_data))
             last_published[sentence_type] = current_time
