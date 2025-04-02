@@ -121,10 +121,10 @@ def parse_nmea(sentence: str) -> Dict[str, Any]:
         for i in range(4, len(parts) - 4, 4):
             if len(parts) >= i + 4:
                 satellite_info = {
-                    "satellite_prn": parts[i],
-                    "elevation": parts[i + 1],
-                    "azimuth": parts[i + 2],
-                    "snr": parts[i + 3]
+                    "satellite_prn": parse_int(parts[i]),
+                    "elevation": parse_int(parts[i + 1]),
+                    "azimuth": parse_int(parts[i + 2]),
+                    "snr": parse_int(parts[i + 3])
                 }
                 data["satellites"].append(satellite_info)
 
