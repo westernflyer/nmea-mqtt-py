@@ -88,19 +88,7 @@ def parse_nmea(sentence: str) -> Dict[str, Any]:
     parts = sentence.strip().split(',')
     sentence_type = parts[0][3:]
 
-    if sentence_type == "GLL":  # Geographic Position - Latitude/Longitude
-        data = {
-            "latitude": parse_latitude(parts[1], parts[2]),
-            "longitude": parse_longitude(parts[3], parts[4]),
-            "timeUTC": parse_time(parts[5][0:6]),
-            "status": parts[6],
-        }
-        try:
-            data["mode"] = parts[7][0]
-        except IndexError:
-            data["mode"] = None
-
-    elif sentence_type == "GGA":  # Global Positioning System Fix Data
+    if sentence_type == "GGA":  # Global Positioning System Fix Data
         data = {
             "timeUTC": parse_time(parts[1][0:6]),
             "latitude": parse_latitude(parts[2], parts[3]),
@@ -111,6 +99,18 @@ def parse_nmea(sentence: str) -> Dict[str, Any]:
             "altitude": parse_float(parts[9]),
             "altitude_units": parts[10]
         }
+
+    elif sentence_type == "GLL":  # Geographic Position - Latitude/Longitude
+        data = {
+            "latitude": parse_latitude(parts[1], parts[2]),
+            "longitude": parse_longitude(parts[3], parts[4]),
+            "timeUTC": parse_time(parts[5][0:6]),
+            "status": parts[6],
+        }
+        try:
+            data["mode"] = parts[7][0]
+        except IndexError:
+            data["mode"] = None
 
     elif sentence_type == "GSV":  # Satellites in View
         data = {
@@ -128,45 +128,6 @@ def parse_nmea(sentence: str) -> Dict[str, Any]:
                     "snr": parse_int(parts[i + 3])
                 }
                 data["satellites"].append(satellite_info)
-
-    elif sentence_type == "RMC":  # Recommended Minimum Specific GPS/Transit Data
-        data = {
-            "timeUTC": parse_datetime(parts[9], parts[1]),
-            "status": parts[2],
-            "latitude": parse_latitude(parts[3], parts[4]),
-            "longitude": parse_longitude(parts[5], parts[6]),
-            "speed_knots": parse_float(parts[7]),
-            "track_angle": parse_float(parts[8]),
-            "magnetic_variation": parts[10] + " " + parts[11] if len(parts) > 11 else None
-        }
-
-    elif sentence_type == "RSA":
-        data = {
-            "rudder_angle": parse_float(parts[1]) if parts[2].upper() == 'A' else None,
-        }
-    elif sentence_type == "VTG":  # Track Made Good and Ground Speed
-        data = {
-            "course_true": parse_float(parts[1]),
-            "reference_true": parts[2],
-            "course_magnetic": parse_float(parts[3]),
-            "reference_magnetic": parts[4],
-            "speed_knots": parse_float(parts[5]),
-            "speed_kmh": parse_float(parts[7]),
-        }
-        try:
-            data["mode"] = parts[9][0]
-        except IndexError:
-            data["mode"] = None
-
-    elif sentence_type == "VWR":
-        data = {
-            "wind_apparent_angle": parse_float(parts[1]),
-            "wind_speed_apparent_knots": parse_float(parts[3]),
-            "wind_speed_apparent_mps": parse_float(parts[5]),
-            "wind_speed_apparent_kmh": parse_float(parts[7]),
-        }
-        if parts[2].upper() == 'L':
-            data["wind_apparent_angle"] = -data["wind_apparent_angle"]
 
     elif sentence_type == "HDT":  # Heading - True
         data = {
@@ -192,6 +153,46 @@ def parse_nmea(sentence: str) -> Dict[str, Any]:
             "units": parts[4],
             "status": parts[5][0] if len(parts[5]) > 0 else None
         }
+
+    elif sentence_type == "RMC":  # Recommended Minimum Specific GPS/Transit Data
+        data = {
+            "timeUTC": parse_datetime(parts[9], parts[1]),
+            "status": parts[2],
+            "latitude": parse_latitude(parts[3], parts[4]),
+            "longitude": parse_longitude(parts[5], parts[6]),
+            "speed_knots": parse_float(parts[7]),
+            "track_angle": parse_float(parts[8]),
+            "magnetic_variation": parts[10] + " " + parts[11] if len(parts) > 11 else None
+        }
+
+    elif sentence_type == "RSA":
+        data = {
+            "rudder_angle": parse_float(parts[1]) if parts[2].upper() == 'A' else None,
+        }
+
+    elif sentence_type == "VTG":  # Track Made Good and Ground Speed
+        data = {
+            "course_true": parse_float(parts[1]),
+            "reference_true": parts[2],
+            "course_magnetic": parse_float(parts[3]),
+            "reference_magnetic": parts[4],
+            "speed_knots": parse_float(parts[5]),
+            "speed_kmh": parse_float(parts[7]),
+        }
+        try:
+            data["mode"] = parts[9][0]
+        except IndexError:
+            data["mode"] = None
+
+    elif sentence_type == "VWR":
+        data = {
+            "wind_apparent_angle": parse_float(parts[1]),
+            "wind_speed_apparent_knots": parse_float(parts[3]),
+            "wind_speed_apparent_mps": parse_float(parts[5]),
+            "wind_speed_apparent_kmh": parse_float(parts[7]),
+        }
+        if parts[2].upper() == 'L':
+            data["wind_apparent_angle"] = -data["wind_apparent_angle"]
 
     else:
         raise UnknownNMEASentence(f"Unsupported NMEA sentence type {sentence_type}")
