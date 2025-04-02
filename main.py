@@ -10,8 +10,10 @@ import json
 import operator
 import re
 import socket
+import sys
 import time
 from collections import defaultdict
+from contextlib import contextmanager
 from functools import reduce
 from typing import Dict, Any
 
@@ -283,16 +285,30 @@ def is_number(string: str) -> bool:
     except ValueError:
         return False
 
+@contextmanager
+def managed_connection():
+    """Provides a context manager for a paho MQTT client connection."""
+    mqtt_client = mqtt.Client(callback_api_version=2)
+    try:
+        yield mqtt_client
+    finally:
+        print("Stopping loop and disconnecting from MQTT broker. Goodbye!")
+        mqtt_client.loop_stop()
+        mqtt_client.disconnect()
 
 if __name__ == "__main__":
-    # MQTT setup
-    mqtt_client = mqtt.Client(callback_api_version=2)
-    if MQTT_USERNAME and MQTT_PASSWORD:
-        mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-    mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-    mqtt_client.loop_start()
+    while True:
+        try:
+            with managed_connection() as mqtt_client:
+                if MQTT_USERNAME and MQTT_PASSWORD:
+                    mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+                mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+                mqtt_client.loop_start()
 
-    try:
-        listen_nmea(mqtt_client)
-    except KeyboardInterrupt:
-        print("Exiting...")
+                listen_nmea(mqtt_client)
+        except KeyboardInterrupt:
+            sys.exit("Keyboard interrupt. Exiting.")
+        except ConnectionResetError:
+            print("Connection reset. Waiting 5 seconds before retrying.")
+            time.sleep(5)
+            print("Retrying...")
