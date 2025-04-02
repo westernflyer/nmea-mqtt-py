@@ -4,7 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 #
-"""Read NMEA sentences from a socket, then publish them to MQTT."""
+"""Read NMEA sentences from a socket, parse, then publish to MQTT."""
 import datetime
 import json
 import operator
@@ -24,18 +24,11 @@ class UnknownNMEASentence(ValueError):
     "Raised whe an unknown NMEA sentence is received."
 
 
-# MQTT setup
-mqtt_client = mqtt.Client(callback_api_version=2)
-if MQTT_USERNAME and MQTT_PASSWORD:
-    mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-mqtt_client.loop_start()
-
 # Last published timestamps
 last_published = defaultdict(lambda: 0)
 
 
-def publish_nmea(nmea_sentence):
+def publish_nmea(mqtt_client: mqtt.Client, nmea_sentence: str):
     """Publish parsed NMEA data to MQTT."""
     global last_published
 
@@ -72,7 +65,7 @@ def publish_nmea(nmea_sentence):
 
 
 # Socket listener
-def listen_nmea():
+def listen_nmea(mqtt_client: mqtt.Client):
     """Listen for NMEA data on a TCP socket."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((NMEA_HOST, NMEA_PORT))
@@ -80,7 +73,7 @@ def listen_nmea():
             for line in nmea_stream:
                 line = line.strip()
                 if line.startswith("$"):
-                    publish_nmea(line)
+                    publish_nmea(mqtt_client, line)
 
 
 def parse_nmea(sentence: str) -> Dict[str, Any]:
@@ -200,7 +193,7 @@ def parse_nmea(sentence: str) -> Dict[str, Any]:
     return data
 
 
-def checksum(nmea_str):
+def checksum(nmea_str: str):
     return reduce(operator.xor, map(ord, nmea_str), 0)
 
 
@@ -281,7 +274,7 @@ def parse_int(int_str: str) -> int:
         return None
 
 
-def is_number(string) -> bool:
+def is_number(string: str) -> bool:
     try:
         float(string)
         return True
@@ -290,7 +283,14 @@ def is_number(string) -> bool:
 
 
 if __name__ == "__main__":
+    # MQTT setup
+    mqtt_client = mqtt.Client(callback_api_version=2)
+    if MQTT_USERNAME and MQTT_PASSWORD:
+        mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+    mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    mqtt_client.loop_start()
+
     try:
-        listen_nmea()
+        listen_nmea(mqtt_client)
     except KeyboardInterrupt:
         print("Exiting...")
