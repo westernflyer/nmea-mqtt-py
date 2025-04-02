@@ -23,6 +23,7 @@ from config import *
 class UnknownNMEASentence(ValueError):
     "Raised whe an unknown NMEA sentence is received."
 
+
 # MQTT setup
 mqtt_client = mqtt.Client(callback_api_version=2)
 if MQTT_USERNAME and MQTT_PASSWORD:
@@ -45,7 +46,7 @@ def publish_nmea(nmea_sentence):
     asterick = nmea_sentence.find('*')
     if asterick != -1:
         cs = checksum(nmea_sentence[1:asterick])
-        cs_msg = int(nmea_sentence[asterick+1:], 16)
+        cs_msg = int(nmea_sentence[asterick + 1:], 16)
         if cs != cs_msg:
             print(f"Checksum mismatch for sentence {nmea_sentence}")
         # Strip off the checksum:
@@ -139,6 +140,10 @@ def parse_nmea(sentence: str) -> Dict[str, Any]:
             "magnetic_variation": parts[10] + " " + parts[11] if len(parts) > 11 else None
         }
 
+    elif sentence_type == "RSA":
+        data = {
+            "rudder_angle": parse_float(parts[1]) if parts[2].upper() == 'A' else None,
+        }
     elif sentence_type == "VTG":  # Track Made Good and Ground Speed
         data = {
             "course_true": parse_float(parts[1]),
@@ -153,6 +158,15 @@ def parse_nmea(sentence: str) -> Dict[str, Any]:
         except IndexError:
             data["mode"] = None
 
+    elif sentence_type == "VWR":
+        data = {
+            "wind_apparent_angle": parse_float(parts[1]),
+            "wind_speed_apparent_knots": parse_float(parts[3]),
+            "wind_speed_apparent_mps": parse_float(parts[5]),
+            "wind_speed_apparent_kmh": parse_float(parts[7]),
+        }
+        if parts[2].upper() == 'L':
+            data["wind_apparent_angle"] = -data["wind_apparent_angle"]
 
     elif sentence_type == "HDT":  # Heading - True
         data = {
@@ -199,6 +213,7 @@ def parse_time(time_str: str) -> str:
         return None
     return f"{hours:02}:{minutes:02}:{seconds:02}"
 
+
 def parse_datetime(date_str: str, time_str: str) -> str:
     """Parses a date string of the form DDMMYY and time string of the form HHMMSS.SS."""
     hours = int(time_str[:2])
@@ -212,7 +227,8 @@ def parse_datetime(date_str: str, time_str: str) -> str:
     dt = datetime.datetime(year, month, day, hours, minutes, seconds)
     return dt.isoformat()
 
-def dm_to_sd(dm: str|None) -> float:
+
+def dm_to_sd(dm: str | None) -> float:
     """
     Converts a geographic co-ordinate given in "degrees/minutes" dddmm.mmmm
     format (eg, "12319.943281" = 123 degrees, 19.943281 minutes) to a signed
@@ -244,6 +260,7 @@ def parse_longitude(longitude: str, hemisphere: str = 'E') -> float:
     if hemisphere == 'W':
         val = -val
     return val
+
 
 def parse_float(float_str: str) -> float:
     if float_str is None or float_str == '':
