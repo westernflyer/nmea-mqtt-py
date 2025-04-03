@@ -5,6 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 #
 """Read NMEA sentences from a socket, parse, then publish to MQTT."""
+from __future__ import annotations
+
 import importlib
 import json
 import operator
@@ -21,7 +23,7 @@ from config import *
 from utilities import *
 
 # Last published timestamps
-last_published = defaultdict(lambda: 0)
+last_published = defaultdict(lambda: 0.0)
 
 def publish_nmea(mqtt_client: mqtt.Client, nmea_sentence: str):
     """Publish parsed NMEA data to MQTT."""
@@ -57,7 +59,7 @@ def publish_nmea(mqtt_client: mqtt.Client, nmea_sentence: str):
     else:
         if parsed_data:
             parsed_data["sentence_type"] = sentence_type.upper()
-            parsed_data["timestamp"] = int(time.time() + 0.5)
+            parsed_data["timestamp"] = int(time.time() * 1000 + 0.5) # Unix epoch time in milliseconds
             topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{sentence_type}"
             mqtt_client.publish(topic, json.dumps(parsed_data))
             last_published[sentence_type] = current_time
