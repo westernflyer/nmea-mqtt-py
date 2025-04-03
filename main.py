@@ -23,8 +23,6 @@ from utilities import *
 # Last published timestamps
 last_published = defaultdict(lambda: 0)
 
-nmea_keys=set()
-
 def publish_nmea(mqtt_client: mqtt.Client, nmea_sentence: str):
     """Publish parsed NMEA data to MQTT."""
     global last_published
@@ -90,8 +88,7 @@ def parse_nmea(sentence: str) -> dict[str, str|float|int|None]:
         raise UnknownNMEASentence(f"Unsupported NMEA sentence type {sentence_type}")
 
     data = m.decode(parts)
-    for key in data:
-        nmea_keys.add(key)
+
     return data
 
 
@@ -120,7 +117,6 @@ if __name__ == "__main__":
 
                 listen_nmea(mqtt_client)
         except KeyboardInterrupt:
-            print("Seen key", nmea_keys)
             sys.exit("Keyboard interrupt. Exiting.")
         except ConnectionResetError:
             print("Connection reset. Waiting 5 seconds before retrying.")

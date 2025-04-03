@@ -25,7 +25,6 @@ MQTT_PASSWORD = ""
 PUBLISH_INTERVALS = {
     "GGA": 10,
     "GLL": 10,
-    "GSV": 10,
     "HDT": 10,
     "MDA": 10,
     "MWV": 10,
