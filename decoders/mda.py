@@ -14,4 +14,8 @@ def decode(parts: list[str]) -> dict[str, str | float | int | None]:
         "tws_knots": parse_float(parts[17]),
         "tws_mps": parse_float(parts[19]),
     }
+    if data["pressure_bars"] is not None:
+        data["pressure_millibars"] = data["pressure_bars"] * 1000
+    else:
+        data["pressure_millibars"] = None
     return data
