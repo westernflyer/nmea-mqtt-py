@@ -2,7 +2,8 @@ from utilities import *
 
 
 def decode(parts: list[str]) -> dict[str, str | float | int | None]:
-    # Only accept sentences with a good status
+
+    # Check status
     status = parts[5].upper()
     if status != 'A':
         raise NMEAStatusError(f"Bad status ('{status}') for sentence type 'MWV'")
@@ -10,11 +11,11 @@ def decode(parts: list[str]) -> dict[str, str | float | int | None]:
     # Determine if we have true or apparent wind
     reference = parts[2].upper()
     if reference == 'T':
-        key = "wind_angle_true"
-        value_key = "wind_speed_true_knots"
+        key = "twa"
+        value_key = "tws_knots"
     elif reference == 'R':
-        key = "wind_angle_apparent"
-        value_key = "wind_speed_apparent_knots"
+        key = "awa"
+        value_key = "aws_knots"
     else:
         raise NMEAParsingError(f"Unknown MWV reference '{reference}' (expected 'T' or 'R')")
 
