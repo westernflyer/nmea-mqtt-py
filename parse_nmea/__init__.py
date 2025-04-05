@@ -1,10 +1,14 @@
 import datetime
 import importlib
+import operator
 import re
+import time
+from functools import reduce
 
 
 class UnknownNMEASentence(ValueError):
     "Raised whe an unknown NMEA sentence is received."
+    sentence_type: str
 
 
 class NMEAParsingError(ValueError):
@@ -18,6 +22,19 @@ class NMEAStatusError(ValueError):
 def parse(sentence: str) -> dict[str, str | float | int | None]:
     """Parses an NMEA 0183 sentence into a dictionary."""
 
+    if not sentence.startswith("$"):
+        raise NMEAParsingError(f"Invalid NMEA sentence '{sentence}'")
+
+    # If it's present, check the checksum
+    asterick = sentence.find('*')
+    if asterick != -1:
+        cs = checksum(sentence[1:asterick])
+        cs_msg = int(sentence[asterick + 1:], 16)
+        if cs != cs_msg:
+            raise NMEAParsingError(f"Checksum mismatch for sentence {sentence}")
+        # Strip off the checksum:
+        sentence = sentence[:asterick]
+
     parts = sentence.strip().split(',')
     sentence_type = parts[0][3:]
 
@@ -25,11 +42,21 @@ def parse(sentence: str) -> dict[str, str | float | int | None]:
     try:
         m = importlib.import_module(f"parse_nmea.decoders.{sentence_type.lower()}")
     except ModuleNotFoundError:
-        raise UnknownNMEASentence(f"Unsupported NMEA sentence type {sentence_type}")
+        e = UnknownNMEASentence(f"Unsupported NMEA sentence type {sentence_type}")
+        e.sentence_type = sentence_type
+        raise e
 
     data = m.decode(parts)
 
+    # Add the sentence type and a timestamp
+    data["sentence_type"] = sentence_type.upper()
+    data["timestamp"] = int(time.time() * 1000 + 0.5)
+
     return data
+
+
+def checksum(nmea_str: str) -> int:
+    return reduce(operator.xor, map(ord, nmea_str), 0)
 
 
 def parse_time(time_str: str) -> str:

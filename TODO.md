@@ -8,3 +8,5 @@ Missing sentences (none of them are needed):
   - VBW
   - VWH
   - ZDA
+
+Handle `ConnectionRefusedError`
