@@ -1,4 +1,4 @@
-from utilities import *
+from parse_nmea.__init__ import *
 
 
 def decode(parts: list[str]) -> dict[str, str | float | int | None]:

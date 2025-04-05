@@ -1,4 +1,5 @@
 import datetime
+import importlib
 import re
 
 
@@ -12,6 +13,23 @@ class NMEAParsingError(ValueError):
 
 class NMEAStatusError(ValueError):
     """Raised when an NMEA sentence has a bad status."""
+
+
+def parse(sentence: str) -> dict[str, str | float | int | None]:
+    """Parses an NMEA 0183 sentence into a dictionary."""
+
+    parts = sentence.strip().split(',')
+    sentence_type = parts[0][3:]
+
+    # Dynamically import the appropriate decoder module
+    try:
+        m = importlib.import_module(f"parse_nmea.decoders.{sentence_type.lower()}")
+    except ModuleNotFoundError:
+        raise UnknownNMEASentence(f"Unsupported NMEA sentence type {sentence_type}")
+
+    data = m.decode(parts)
+
+    return data
 
 
 def parse_time(time_str: str) -> str:

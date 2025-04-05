@@ -21,15 +21,15 @@ MQTT_TOPIC_PREFIX = "nmea"
 MQTT_USERNAME = ""
 MQTT_PASSWORD = ""
 
-# How often to publish in seconds. If a sentence is not listed below, it will not get published.
+# How often to publish in milliseconds. If a sentence is not listed below, it will not get published.
 PUBLISH_INTERVALS = {
-    "GGA": 10,
-    "GLL": 10,
-    "HDT": 10,
-    "MDA": 10,
-    "MWV": 10,
-    "RMC": 10,
-    "RSA": 10,
-    "VTG": 10,
-    "VWR": 10,
+    "GGA": 10000,
+    "GLL": 10000,
+    "HDT": 10000,
+    "MDA": 10000,
+    "MWV": 10000,
+    "RMC": 10000,
+    "RSA": 10000,
+    "VTG": 10000,
+    "VWR": 10000,
 }

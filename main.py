@@ -7,8 +7,8 @@
 """Read NMEA sentences from a socket, parse, then publish to MQTT."""
 from __future__ import annotations
 
-import importlib
 import json
+import logging
 import operator
 import socket
 import sys
@@ -19,18 +19,73 @@ from functools import reduce
 
 import paho.mqtt.client as mqtt
 
+import parse_nmea
 from config import *
-from utilities import *
 
 # Last published timestamps
 last_published = defaultdict(lambda: 0.0)
 
-def publish_nmea(mqtt_client: mqtt.Client, nmea_sentence: str):
-    """Publish parsed NMEA data to MQTT."""
+log = logging.getLogger("nmea-mqtt")
+logging.basicConfig(level=logging.DEBUG)
+
+def main():
+    while True:
+        try:
+            nmea_loop()
+        except KeyboardInterrupt:
+            sys.exit("Keyboard interrupt. Exiting.")
+        except ConnectionResetError as e:
+            print(f"Connection reset. Reason: {e}")
+            print("*** Waiting 5 seconds before retrying.")
+            log.warning(f"Connection reset. Reason: {e}")
+            log.warning("*** Waiting 5 seconds before retrying.")
+            time.sleep(5)
+            print("*** Retrying...")
+            log.warning("*** Retrying...")
+
+
+def nmea_loop():
+    with managed_connection() as mqtt_client:
+        if MQTT_USERNAME and MQTT_PASSWORD:
+            mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+        mqtt_client.on_connect = on_connect
+        mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        mqtt_client.loop_start()
+        for line in gen_nmea(NMEA_HOST, NMEA_PORT):
+            sentence = check_nmea(line)
+            if not sentence:
+                continue
+            sentence_type, nmea_sentence = sentence
+            try:
+                parsed_nmea = parse_nmea.parse(nmea_sentence)
+            except (parse_nmea.UnknownNMEASentence, parse_nmea.NMEAParsingError, parse_nmea.NMEAStatusError) as e:
+                log.warning("NMEA error: %s", e)
+                print(f"NMEA error: {e}", file=sys.stderr)
+            else:
+                publish_nmea(mqtt_client, sentence_type, parsed_nmea)
+
+
+def on_connect(client, userdata, flags, reason_code, properties):
+    """The callback for when the client receives a CONNACK response from the server."""
+    print(f"Connected to MQTT broker with result code: '{reason_code}'")
+    log.info(f"Connected to MQTT broker with result code: '{reason_code}'")
+
+
+def gen_nmea(host: str, port: int):
+    """Listen for NMEA data on a TCP socket."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.connect((host, port))
+        with s.makefile('r') as nmea_stream:
+            for line in nmea_stream:
+                yield line.strip()
+
+
+def check_nmea(nmea_sentence: str) -> tuple[str, str] | None:
+    """Check NMEA sentence for validity and rate limit. """
     global last_published
 
     if not nmea_sentence.startswith("$"):
-        raise ValueError(f"Invalid NMEA sentence '{nmea_sentence}'")
+        raise parse_nmea.NMEAParsingError(f"Invalid NMEA sentence '{nmea_sentence}'")
 
     # If it's present, check the checksum
     asterick = nmea_sentence.find('*')
@@ -38,69 +93,39 @@ def publish_nmea(mqtt_client: mqtt.Client, nmea_sentence: str):
         cs = checksum(nmea_sentence[1:asterick])
         cs_msg = int(nmea_sentence[asterick + 1:], 16)
         if cs != cs_msg:
-            print(f"Checksum mismatch for sentence {nmea_sentence}")
+            raise parse_nmea.NMEAParsingError(f"Checksum mismatch for sentence {nmea_sentence}")
         # Strip off the checksum:
         nmea_sentence = nmea_sentence[:asterick]
     sentence_type = nmea_sentence[3:6]  # Extract sentence type (e.g., GGA, RMC)
 
     if sentence_type not in PUBLISH_INTERVALS:
-        return  # Skip sentences that are not in the publish list
+        return None
 
-    current_time = time.time()
-    if current_time - last_published[sentence_type] < PUBLISH_INTERVALS[sentence_type]:
-        return  # Skip publishing if within rate limit
+    delta = time.time() * 1000 - last_published[sentence_type]
+    if delta < PUBLISH_INTERVALS[sentence_type]:
+        return None
 
-    try:
-        parsed_data = parse_nmea(nmea_sentence)
-    except UnknownNMEASentence as e:
-        print("UnknownNMEASentence", e)
-    except NMEAParsingError as e:
-        print("NMEAParsingError", e)
-    else:
-        if parsed_data:
-            parsed_data["sentence_type"] = sentence_type.upper()
-            parsed_data["timestamp"] = int(time.time() * 1000 + 0.5) # Unix epoch time in milliseconds
-            topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{sentence_type}"
-            mqtt_client.publish(topic, json.dumps(parsed_data))
-            last_published[sentence_type] = current_time
+    return sentence_type, nmea_sentence
 
 
-# Socket listener
-def listen_nmea(mqtt_client: mqtt.Client):
-    """Listen for NMEA data on a TCP socket."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((NMEA_HOST, NMEA_PORT))
-        with s.makefile('r') as nmea_stream:
-            for line in nmea_stream:
-                line = line.strip()
-                if line.startswith("$"):
-                    publish_nmea(mqtt_client, line)
+def publish_nmea(mqtt_client: mqtt.Client, sentence_type: str, parsed_data: dict[str, str | float | int | None]):
+    """Publish parsed NMEA data to MQTT."""
+    now = int(time.time() * 1000 + 0.5)  # Unix epoch time in milliseconds
+    parsed_data["sentence_type"] = sentence_type.upper()
+    parsed_data["timestamp"] = now
+    topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{sentence_type}"
+    mqtt_client.publish(topic, json.dumps(parsed_data), qos=0)
+    last_published[sentence_type] = now
 
 
-def parse_nmea(sentence: str) -> dict[str, str|float|int|None]:
-    """Parses an NMEA 0183 sentence into a dictionary."""
-
-    parts = sentence.strip().split(',')
-    sentence_type = parts[0][3:]
-
-    # Dynamically import the appropriate decoder module
-    try:
-        m = importlib.import_module(f"decoders.{sentence_type.lower()}")
-    except ModuleNotFoundError:
-        raise UnknownNMEASentence(f"Unsupported NMEA sentence type {sentence_type}")
-
-    data = m.decode(parts)
-
-    return data
-
-
-def checksum(nmea_str: str):
+def checksum(nmea_str: str) -> int:
     return reduce(operator.xor, map(ord, nmea_str), 0)
+
 
 @contextmanager
 def managed_connection():
     """Provides a context manager for a paho MQTT client connection."""
-    mqtt_client = mqtt.Client(callback_api_version=2)
+    mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     try:
         yield mqtt_client
     finally:
@@ -108,19 +133,6 @@ def managed_connection():
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
 
-if __name__ == "__main__":
-    while True:
-        try:
-            with managed_connection() as mqtt_client:
-                if MQTT_USERNAME and MQTT_PASSWORD:
-                    mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-                mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-                mqtt_client.loop_start()
 
-                listen_nmea(mqtt_client)
-        except KeyboardInterrupt:
-            sys.exit("Keyboard interrupt. Exiting.")
-        except ConnectionResetError:
-            print("Connection reset. Waiting 5 seconds before retrying.")
-            time.sleep(5)
-            print("Retrying...")
+if __name__ == "__main__":
+    main()
