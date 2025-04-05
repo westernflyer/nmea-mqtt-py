@@ -1,3 +1,10 @@
+#
+# Copyright (c) 2025-present Tom Keffer <tkeffer@gmail.com>
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
+#
+"""Parse NMEA sentences."""
 import datetime
 import importlib
 import operator
@@ -46,6 +53,7 @@ def parse(sentence: str) -> dict[str, str | float | int | None]:
         e.sentence_type = sentence_type
         raise e
 
+    # Using the decoder module, parse the parts of the sentence
     data = m.decode(parts)
 
     # Add the sentence type and a timestamp
@@ -59,7 +67,7 @@ def checksum(nmea_str: str) -> int:
     return reduce(operator.xor, map(ord, nmea_str), 0)
 
 
-def parse_time(time_str: str) -> str:
+def parse_time(time_str: str | None) -> str:
     """Parses a time string of the form HHMMSS.SS into hours, minutes, and seconds."""
     try:
         hours = int(time_str[:2])
@@ -104,14 +112,14 @@ def dm_to_sd(dm: str | None) -> float:
     return float(d) + float(m) / 60
 
 
-def parse_latitude(latitude: str, hemisphere: str = 'N') -> float:
+def parse_latitude(latitude: str | None, hemisphere: str = 'N') -> float:
     val = dm_to_sd(latitude)
     if hemisphere == 'S':
         val = -val
     return val
 
 
-def parse_longitude(longitude: str, hemisphere: str = 'E') -> float:
+def parse_longitude(longitude: str | None, hemisphere: str = 'E') -> float:
     val = dm_to_sd(longitude)
     if hemisphere == 'W':
         val = -val

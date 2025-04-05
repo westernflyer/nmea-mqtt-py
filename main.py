@@ -40,26 +40,31 @@ def main():
         except KeyboardInterrupt:
             sys.exit("Keyboard interrupt. Exiting.")
         except ConnectionResetError as e:
-            print(f"Connection reset. Reason: {e}")
-            print("*** Waiting 5 seconds before retrying.")
+            print(f"Connection reset. Reason: {e}", file=sys.stderr)
+            print("*** Waiting 5 seconds before retrying.", file=sys.stderr)
             log.warning(f"Connection reset. Reason: {e}")
             log.warning("*** Waiting 5 seconds before retrying.")
             time.sleep(5)
-            print("*** Retrying...")
+            print("*** Retrying...", file=sys.stderr)
             log.warning("*** Retrying...")
         except ConnectionRefusedError as e:
-            print(f"Connection refused. Reason: {e}")
-            print("*** Waiting 60 seconds before retrying.")
+            print(f"Connection refused. Reason: {e}", file=sys.stderr)
+            print("*** Waiting 60 seconds before retrying.", file=sys.stderr)
             log.warning(f"Connection refused. Reason: {e}")
             log.warning("*** Waiting 60 seconds before retrying.")
             time.sleep(60)
-            print("*** Retrying...")
+            print("*** Retrying...", file=sys.stderr)
             log.warning("*** Retrying...")
 
 
 def nmea_loop():
+    """Read sentences from a socket, parse, then publish to MQTT.
+
+    This is the heart of the program.
+    """
     global last_published
 
+    # Open up a connection to the MQTT broker
     with managed_connection() as mqtt_client:
         if MQTT_USERNAME and MQTT_PASSWORD:
             mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
@@ -77,7 +82,7 @@ def nmea_loop():
                     # The user asked for a sentence type, yet we don't know anything about it.
                     # File a warning.
                     log.warning(f"No decoder for sentence type: {e.sentence_type}")
-                    print(f"No decoder for NMEA sentence type: {e.sentence_type}")
+                    print(f"No decoder for NMEA sentence type: {e.sentence_type}", file=sys.stderr)
                     continue
             except (parse_nmea.NMEAParsingError, parse_nmea.NMEAStatusError) as e:
                 log.warning("NMEA error: %s", e)
