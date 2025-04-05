@@ -47,6 +47,14 @@ def main():
             time.sleep(5)
             print("*** Retrying...")
             log.warning("*** Retrying...")
+        except ConnectionRefusedError as e:
+            print(f"Connection refused. Reason: {e}")
+            print("*** Waiting 60 seconds before retrying.")
+            log.warning(f"Connection refused. Reason: {e}")
+            log.warning("*** Waiting 60 seconds before retrying.")
+            time.sleep(60)
+            print("*** Retrying...")
+            log.warning("*** Retrying...")
 
 
 def nmea_loop():
