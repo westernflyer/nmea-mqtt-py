@@ -67,7 +67,7 @@ def checksum(nmea_str: str) -> int:
     return reduce(operator.xor, map(ord, nmea_str), 0)
 
 
-def parse_time(time_str: str | None) -> str:
+def parse_time(time_str: str | None) -> str | None:
     """Parses a time string of the form HHMMSS.SS into hours, minutes, and seconds."""
     try:
         hours = int(time_str[:2])
