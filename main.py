@@ -16,17 +16,23 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from functools import reduce
+from logging.handlers import SysLogHandler
 
 import paho.mqtt.client as mqtt
 
 import parse_nmea
 from config import *
 
+# Set up logging using the system logger
+log = logging.getLogger("nmea-mqtt")
+log.setLevel(logging.DEBUG)  # Set the minimum logging level
+handler = SysLogHandler(address='/dev/log')  # Use '/dev/log' for local syslog
+formatter = logging.Formatter('%(name)s: %(levelname)s %(message)s')
+handler.setFormatter(formatter)
+log.addHandler(handler)
+
 # Last published timestamps
 last_published = defaultdict(lambda: 0.0)
-
-log = logging.getLogger("nmea-mqtt")
-logging.basicConfig(level=logging.DEBUG)
 
 def main():
     while True:
