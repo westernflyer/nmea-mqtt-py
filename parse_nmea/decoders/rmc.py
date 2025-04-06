@@ -13,7 +13,7 @@ def decode(parts: list[str]) -> dict[str, str | float | int | None]:
         raise NMEAStatusError(f"Bad RMC status '{status}' (expected 'A')")
 
     data = {
-        "timeUTC": parse_datetime(parts[9], parts[1]),
+        "datetimeUTC": parse_datetime(parts[9], parts[1]),
         "status": parts[2],
         "latitude": parse_latitude(parts[3], parts[4]),
         "longitude": parse_longitude(parts[5], parts[6]),
