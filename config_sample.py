@@ -29,6 +29,7 @@ PUBLISH_INTERVALS = {
     "MDA": 10000,
     "MWV": 10000,
     "RMC": 10000,
+    "ROT": 10000,
     "RSA": 10000,
     "VTG": 10000,
     "VWR": 10000,
