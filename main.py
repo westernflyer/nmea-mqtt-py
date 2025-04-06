@@ -22,9 +22,13 @@ import parse_nmea
 from config import *
 
 # Set up logging using the system logger
+if sys.platform == "darwin":
+    address = '/var/run/syslog'
+else:
+    address = '/dev/log'
 log = logging.getLogger("nmea-mqtt")
 log.setLevel(logging.DEBUG)  # Set the minimum logging level
-handler = SysLogHandler(address='/dev/log')  # Use '/dev/log' for local syslog
+handler = SysLogHandler(address=address)
 formatter = logging.Formatter('%(name)s: %(levelname)s %(message)s')
 handler.setFormatter(formatter)
 log.addHandler(handler)
