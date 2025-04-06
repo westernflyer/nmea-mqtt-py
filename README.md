@@ -53,7 +53,7 @@ sure you use it consistently in what follows.
    ```
    cd ~/git/nmea-mqtt-py/systemd
    sudo cp nmea_mqtt.service /etc/systemd/system
-   sudo nano /etc/systemd/system/nmea-mqtt-py 
+   sudo nano /etc/systemd/system/nmea_mqtt.service
    ```
    
 6. Reload the systemd manager to reflect your changes and start the daemon.
