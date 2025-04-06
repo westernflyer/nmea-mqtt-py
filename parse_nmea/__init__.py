@@ -73,23 +73,26 @@ def parse_time(time_str: str | None) -> str | None:
         hours = int(time_str[:2])
         minutes = int(time_str[2:4])
         seconds = round(float(time_str[4:]))
-    except (TypeError, ValueError):
+        return f"{hours:02}:{minutes:02}:{seconds:02}"
+    except (TypeError, ValueError, IndexError):
         return None
-    return f"{hours:02}:{minutes:02}:{seconds:02}"
 
 
-def parse_datetime(date_str: str, time_str: str) -> str:
+def parse_datetime(date_str: str, time_str: str) -> str | None:
     """Parses a date string of the form DDMMYY and time string of the form HHMMSS.SS."""
-    hours = int(time_str[:2])
-    minutes = int(time_str[2:4])
-    seconds = round(float(time_str[4:]))
-    day = int(date_str[:2])
-    month = int(date_str[2:4])
-    year = int(date_str[4:])
-    if year < 2000:
-        year += 2000
-    dt = datetime.datetime(year, month, day, hours, minutes, seconds)
-    return dt.isoformat()
+    try:
+        hours = int(time_str[:2])
+        minutes = int(time_str[2:4])
+        seconds = round(float(time_str[4:]))
+        day = int(date_str[:2])
+        month = int(date_str[2:4])
+        year = int(date_str[4:])
+        if year < 2000:
+            year += 2000
+        dt = datetime.datetime(year, month, day, hours, minutes, seconds)
+        return dt.isoformat()
+    except (TypeError, ValueError, IndexError):
+        return None
 
 
 def dm_to_sd(dm: str | None) -> float:
