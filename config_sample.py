@@ -10,11 +10,11 @@ Instead, copy it to config.py, then edit the copy.
 # Vessel related
 MMSI = 368323170
 
-# NMEA related. Adjust based on your setup
+# The host and port of the socket that will be feeding NMEA data:
 NMEA_HOST = "localhost"
 NMEA_PORT = 10110
 
-# MQTT related
+# MQTT configuration.
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 MQTT_TOPIC_PREFIX = "nmea"

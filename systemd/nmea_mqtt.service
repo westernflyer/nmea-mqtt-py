@@ -1,0 +1,22 @@
+# systemd service configuration file for nmea-mqtt
+
+[Unit]
+Description=NMEA 0183 to MQTT gateway
+Documentation=https://github.com/westernflyer/nmea-mqtt-py
+Requires=time-sync.target
+After=time-sync.target
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/nmea/git/nmea-mqtt-py
+# This relies on the working directory being set correctly.
+ExecStart= /home/nmea/git/nmea-mqtt-py/.venv/bin/python3 -m main
+StandardOutput=null
+StandardError=journal+console
+User=nmea
+Group=nmea
+
+[Install]
+WantedBy=multi-user.target
