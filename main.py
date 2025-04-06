@@ -27,7 +27,7 @@ if sys.platform == "darwin":
 else:
     address = '/dev/log'
 log = logging.getLogger("nmea-mqtt")
-log.setLevel(logging.DEBUG)  # Set the minimum logging level
+log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
 handler = SysLogHandler(address=address)
 formatter = logging.Formatter('%(name)s: %(levelname)s %(message)s')
 handler.setFormatter(formatter)
@@ -73,6 +73,7 @@ def nmea_loop():
         if MQTT_USERNAME and MQTT_PASSWORD:
             mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
         mqtt_client.on_connect = on_connect
+        mqtt_client.on_publish = on_publish
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
         mqtt_client.loop_start()
 
@@ -107,6 +108,12 @@ def on_connect(client, userdata, flags, reason_code, properties):
     """The callback for when the client receives a CONNACK response from the server."""
     print(f"Connected to MQTT broker with result code: '{reason_code}'")
     log.info(f"Connected to MQTT broker with result code: '{reason_code}'")
+
+
+def on_publish(client, userdata, mid, reason_code, properties):
+    """Callback for when a PUBLISH message is sent to the server."""
+    print(f"Message id {mid} published.")
+    log.debug(f"Message id {mid} published.")
 
 
 def gen_nmea(host: str, port: int):

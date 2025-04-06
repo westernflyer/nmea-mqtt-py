@@ -7,6 +7,9 @@ Instead, copy it to config.py, then edit the copy.
      nano config.py
 """
 
+# Set to 1 for debug messages
+DEBUG = 0
+
 # Vessel related
 MMSI = 368323170
 
