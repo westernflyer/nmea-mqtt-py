@@ -112,8 +112,9 @@ def on_connect(client, userdata, flags, reason_code, properties):
 
 def on_publish(client, userdata, mid, reason_code, properties):
     """Callback for when a PUBLISH message is sent to the server."""
-    print(f"Message id {mid} published.")
-    log.debug(f"Message id {mid} published.")
+    if DEBUG:
+        print(f"Message id {mid} published.")
+        log.debug(f"Message id {mid} published.")
 
 
 def gen_nmea(host: str, port: int):
