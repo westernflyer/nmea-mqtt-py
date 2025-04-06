@@ -1,3 +1,7 @@
+"""Parse NMEA sentence MDA - Meteorological Composite
+
+For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_mda_meteorological_composite
+"""
 from parse_nmea.__init__ import *
 
 

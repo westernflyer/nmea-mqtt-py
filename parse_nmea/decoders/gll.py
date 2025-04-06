@@ -1,3 +1,7 @@
+"""Parse NMEA sentence GLL - Geographic Position Latitude/Longitude
+
+For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_gll_geographic_position_latitudelongitude
+"""
 from parse_nmea.__init__ import *
 
 

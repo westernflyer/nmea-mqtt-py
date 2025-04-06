@@ -1,3 +1,7 @@
+"""Parse NMEA sentence ROT - Rate of Turn
+
+For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_rot_rate_of_turn
+"""
 from parse_nmea.__init__ import *
 
 

@@ -1,3 +1,7 @@
+"""Parse NMEA sentence RSA - Rudder Sensor Angle
+
+For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_rsa_rudder_sensor_angle
+"""
 from parse_nmea.__init__ import *
 
 

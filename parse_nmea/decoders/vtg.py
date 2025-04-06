@@ -1,3 +1,7 @@
+"""Parse NMEA sentence VTG - Track Made Good and Ground Speed
+
+For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_vtg_track_made_good_and_ground_speed
+"""
 from parse_nmea.__init__ import *
 
 

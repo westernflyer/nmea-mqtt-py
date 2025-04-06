@@ -1,3 +1,7 @@
+"""Parse NMEA sentence GGA - Global Positioning System Fix Data
+
+For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_gga_global_positioning_system_fix_data
+"""
 from parse_nmea.__init__ import *
 
 

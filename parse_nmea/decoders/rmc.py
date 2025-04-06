@@ -1,3 +1,7 @@
+"""Parse NMEA sentence RMC - Recommended Minimum Navigation Information
+
+For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_rmc_recommended_minimum_navigation_information
+"""
 from parse_nmea.__init__ import *
 
 

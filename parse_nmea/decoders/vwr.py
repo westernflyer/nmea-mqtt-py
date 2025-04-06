@@ -1,3 +1,7 @@
+"""Parse NMEA sentence VWR - Relative Wind Speed and Angle
+
+For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_vwr_relative_wind_speed_and_angle
+"""
 from parse_nmea.__init__ import *
 
 

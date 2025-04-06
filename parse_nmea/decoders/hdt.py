@@ -1,3 +1,7 @@
+"""Parse NMEA sentence HDT - Heading True
+
+For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_hdt_heading_true
+"""
 from parse_nmea.__init__ import *
 
 
