@@ -1,7 +1,23 @@
 ## nmea-mqtt-py
 
-Read from NMEA 0183 sentences from a socket, parse them, then publish to MQTT as
+Read NMEA 0183 sentences from a socket, parse them, then publish to MQTT as
 JSON.
+
+## MQTT output
+
+As an example of what gets published, let's look at NMEA sentence `GLL`. It will
+get published as topic `nmea/MMSI/GLL`, where `MMSI` is the MMSI number of the
+boat. The message will look something like:
+
+    {
+    "latitude": 22.929,
+    "longitude": -109.755,
+    "timeUTC": "23:55:31",
+    "gll_mode": "D",
+    "sentence_type": "GLL",
+    "timestamp": 1743983731183
+    }
+
 
 ## Requirements
 
@@ -19,8 +35,8 @@ JSON.
    ```
 
 2. Log in as that user, then clone the Git repository. The following will place
-it at `~nmea/git/nmea-mqtt-py`. Adjust the path to your preference, but make
-sure you use it consistently in what follows.
+the repository at `~nmea/git/nmea-mqtt-py`. Adjust the path to your preference,
+but make sure you use it consistently in what follows.
 
     ```
     cd ~
@@ -46,18 +62,19 @@ sure you use it consistently in what follows.
    nano config.py
    ```
 
-5. Time to install a systemd service file. Copy the provided file into place,
-   then edit it appropriately. In particular, make sure the entries for
-   `WorkingDirectory` and `ExecStart` reflect your choices.
+5. Time to install a systemd service file. Log into an account that has root
+privileges. Copy the provided systemd service file into place, then edit it
+appropriately. In particular, make sure the entries for `WorkingDirectory` and
+`ExecStart` reflect your choices.
 
    ```
-   cd ~/git/nmea-mqtt-py/systemd
+   cd ~nmea/git/nmea-mqtt-py/systemd
    sudo cp nmea-mqtt.service /etc/systemd/system
    sudo nano /etc/systemd/system/nmea-mqtt.service
    ```
    
-6. Reload the systemd manager to reflect your changes and start the daemon.
-   Finally, enable it so it will automatically start when the system boots.
+6. Reload the systemd manager to reflect your changes, then start the nmea-mqtt daemon.
+   Finally, enable the daemon so it will automatically start when the system boots.
 
    ```
    sudo systemctl daemon-reload
