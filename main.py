@@ -33,11 +33,11 @@ formatter = logging.Formatter('%(name)s: %(levelname)s %(message)s')
 handler.setFormatter(formatter)
 log.addHandler(handler)
 
-# Last published timestamps
-last_published = defaultdict(lambda: 0.0)
-
 
 def main():
+    log.info("Starting up nmea-mqtt.  ")
+    log.info("Debug level: %s", DEBUG)
+
     while True:
         try:
             nmea_loop()
@@ -64,12 +64,14 @@ def main():
             log.warning(f"Socket timed out. Waiting {NMEA_RETRY_WAIT} seconds then retrying.")
             time.sleep(NMEA_RETRY_WAIT)
 
+
 def nmea_loop():
     """Read sentences from a socket, parse, then publish to MQTT.
 
     This is the heart of the program.
     """
-    global last_published
+    # The time each topic was last published
+    last_published = defaultdict(lambda: 0.0)
 
     # Open up a connection to the MQTT broker
     with managed_connection() as mqtt_client:
@@ -115,7 +117,7 @@ def on_connect(client, userdata, flags, reason_code, properties):
 
 def on_publish(client, userdata, mid, reason_code, properties):
     """Callback for when a PUBLISH message is sent to the server."""
-    if DEBUG:
+    if DEBUG >= 2:
         print(f"Message id {mid} published.")
         log.debug(f"Message id {mid} published.")
 
@@ -130,10 +132,12 @@ def gen_nmea(host: str, port: int):
                 yield line.strip()
 
 
-def publish_nmea(mqtt_client: mqtt.Client, parsed_data: dict[str, str | float | int | None]):
+def publish_nmea(mqtt_client: mqtt.Client, parsed_nmea: dict[str, str | float | int | None]):
     """Publish parsed NMEA data to MQTT."""
-    topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{parsed_data['sentence_type']}"
-    mqtt_client.publish(topic, json.dumps(parsed_data), qos=0)
+    topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{parsed_nmea['sentence_type']}"
+    info = mqtt_client.publish(topic, json.dumps(parsed_nmea), qos=0)
+    if DEBUG >= 1 and info.mid % 1000 == 0:
+        log.debug(f"{info.mid}: {parsed_nmea['sentence_type']} {parsed_nmea["timestamp"]}")
 
 
 @contextmanager
