@@ -13,9 +13,11 @@ DEBUG = 0
 # Vessel related
 MMSI = 368323170
 
-# The host and port of the socket that will be feeding NMEA data:
+# Settings related to the NMEA socket connection
 NMEA_HOST = "localhost"
 NMEA_PORT = 10110
+NMEA_TIMEOUT = 20
+NMEA_RETRY_WAIT = 60
 
 # MQTT configuration.
 MQTT_BROKER = "localhost"

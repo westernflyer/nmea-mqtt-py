@@ -53,13 +53,16 @@ def main():
             log.warning("*** Retrying...")
         except ConnectionRefusedError as e:
             print(f"Connection refused. Reason: {e}", file=sys.stderr)
-            print("*** Waiting 60 seconds before retrying.", file=sys.stderr)
+            print(f"*** Waiting {NMEA_RETRY_WAIT} seconds before retrying.", file=sys.stderr)
             log.warning(f"Connection refused. Reason: {e}")
-            log.warning("*** Waiting 60 seconds before retrying.")
-            time.sleep(60)
+            log.warning(f"*** Waiting {NMEA_RETRY_WAIT} seconds before retrying.")
+            time.sleep(NMEA_RETRY_WAIT)
             print("*** Retrying...", file=sys.stderr)
             log.warning("*** Retrying...")
-
+        except TimeoutError:
+            print(f"Socket timed out. Waiting {NMEA_RETRY_WAIT} seconds then retrying.", file=sys.stderr)
+            log.warning(f"Socket timed out. Waiting {NMEA_RETRY_WAIT} seconds then retrying.")
+            time.sleep(NMEA_RETRY_WAIT)
 
 def nmea_loop():
     """Read sentences from a socket, parse, then publish to MQTT.
@@ -120,6 +123,7 @@ def on_publish(client, userdata, mid, reason_code, properties):
 def gen_nmea(host: str, port: int):
     """Listen for NMEA data on a TCP socket."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(NMEA_TIMEOUT)
         s.connect((host, port))
         with s.makefile('r') as nmea_stream:
             for line in nmea_stream:
