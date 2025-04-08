@@ -133,6 +133,7 @@ def gen_nmea(host: str, port: int):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(NMEA_TIMEOUT)
         s.connect((host, port))
+        log.info(f"Connected to NMEA socket at {host}:{port}; timeout: {NMEA_TIMEOUT} seconds.")
         with s.makefile('r') as nmea_stream:
             for line in nmea_stream:
                 yield line.strip()
