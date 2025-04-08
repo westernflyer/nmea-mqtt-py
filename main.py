@@ -52,9 +52,9 @@ def main():
             print("*** Retrying...", file=sys.stderr)
             log.warning("*** Retrying...")
         except ConnectionRefusedError as e:
-            print(f"Connection refused. Reason: {e}", file=sys.stderr)
+            print(f"Connection refused: {e}", file=sys.stderr)
             print(f"*** Waiting {NMEA_RETRY_WAIT} seconds before retrying.", file=sys.stderr)
-            log.warning(f"Connection refused. Reason: {e}")
+            log.warning(f"Connection refused: {e}")
             log.warning(f"*** Waiting {NMEA_RETRY_WAIT} seconds before retrying.")
             time.sleep(NMEA_RETRY_WAIT)
             print("*** Retrying...", file=sys.stderr)
@@ -62,6 +62,12 @@ def main():
         except TimeoutError:
             print(f"Socket timed out. Waiting {NMEA_RETRY_WAIT} seconds then retrying.", file=sys.stderr)
             log.warning(f"Socket timed out. Waiting {NMEA_RETRY_WAIT} seconds then retrying.")
+            time.sleep(NMEA_RETRY_WAIT)
+        except socket.gaierror as e:
+            print(f"GAI error: {e}", file=sys.stderr)
+            print(f"Waiting {NMEA_RETRY_WAIT} seconds then retrying.", file=sys.stderr)
+            log.warning(f"GAI error: {e}")
+            log.warning(f"Waiting {NMEA_RETRY_WAIT} seconds then retrying.")
             time.sleep(NMEA_RETRY_WAIT)
 
 
