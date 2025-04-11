@@ -72,7 +72,7 @@ def main():
             time.sleep(NMEA_RETRY_WAIT)
         except OSError as e:
             # Retry if it's a network unreachable error. Otherwise, reraise the exception.
-            if e.errno == errno.ENETUNREACH:
+            if e.errno == errno.ENETUNREACH or e.errno == errno.EHOSTUNREACH:
                 print(f"OSError: {e}", file=sys.stderr)
                 print(f"Waiting {NMEA_RETRY_WAIT} seconds then retrying.", file=sys.stderr)
                 log.warning(f"OSError: {e}")
