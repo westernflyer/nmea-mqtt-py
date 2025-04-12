@@ -45,39 +45,17 @@ def main():
         except KeyboardInterrupt:
             sys.exit("Keyboard interrupt. Exiting.")
         except ConnectionResetError as e:
-            print(f"Connection reset. Reason: {e}", file=sys.stderr)
-            print("*** Waiting 5 seconds before retrying.", file=sys.stderr)
-            log.warning(f"Connection reset. Reason: {e}")
-            log.warning("*** Waiting 5 seconds before retrying.")
-            time.sleep(5)
-            print("*** Retrying...", file=sys.stderr)
-            log.warning("*** Retrying...")
+            warn_print_sleep(f"Connection reset: {e}")
         except ConnectionRefusedError as e:
-            print(f"Connection refused: {e}", file=sys.stderr)
-            print(f"*** Waiting {NMEA_RETRY_WAIT} seconds before retrying.", file=sys.stderr)
-            log.warning(f"Connection refused: {e}")
-            log.warning(f"*** Waiting {NMEA_RETRY_WAIT} seconds before retrying.")
-            time.sleep(NMEA_RETRY_WAIT)
-            print("*** Retrying...", file=sys.stderr)
-            log.warning("*** Retrying...")
-        except TimeoutError:
-            print(f"Socket timed out. Waiting {NMEA_RETRY_WAIT} seconds then retrying.", file=sys.stderr)
-            log.warning(f"Socket timed out. Waiting {NMEA_RETRY_WAIT} seconds then retrying.")
-            time.sleep(NMEA_RETRY_WAIT)
+            warn_print_sleep(f"Connection refused: {e}")
+        except TimeoutError as e:
+            warn_print_sleep(f"Socket timeout: {e}")
         except socket.gaierror as e:
-            print(f"GAI error: {e}", file=sys.stderr)
-            print(f"Waiting {NMEA_RETRY_WAIT} seconds then retrying.", file=sys.stderr)
-            log.warning(f"GAI error: {e}")
-            log.warning(f"Waiting {NMEA_RETRY_WAIT} seconds then retrying.")
-            time.sleep(NMEA_RETRY_WAIT)
+            warn_print_sleep(f"GAI error: {e}")
         except OSError as e:
             # Retry if it's a network unreachable error. Otherwise, reraise the exception.
             if e.errno == errno.ENETUNREACH or e.errno == errno.EHOSTUNREACH:
-                print(f"OSError: {e}", file=sys.stderr)
-                print(f"Waiting {NMEA_RETRY_WAIT} seconds then retrying.", file=sys.stderr)
-                log.warning(f"OSError: {e}")
-                log.warning(f"Waiting {NMEA_RETRY_WAIT} seconds then retrying.")
-                time.sleep(NMEA_RETRY_WAIT)
+                warn_print_sleep(f"Network unreachable: {e}")
             else:
                 raise
 
@@ -168,6 +146,16 @@ def managed_connection():
         print("Stopping loop and disconnecting from MQTT broker. Goodbye!")
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
+
+def warn_print_sleep(msg: str):
+    """Print and log a warning message, then sleep for NMEA_RETRY_WAIT seconds."""
+    print(msg, file=sys.stderr)
+    print(f"*** Waiting {NMEA_RETRY_WAIT} seconds before retrying.", file=sys.stderr)
+    log.warning(msg)
+    log.warning(f"*** Waiting {NMEA_RETRY_WAIT} seconds before retrying.")
+    time.sleep(NMEA_RETRY_WAIT)
+    print("*** Retrying...", file=sys.stderr)
+    log.warning("*** Retrying...")
 
 
 if __name__ == "__main__":
