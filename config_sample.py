@@ -28,6 +28,7 @@ MQTT_PASSWORD = ""
 
 # How often to publish in milliseconds. If a sentence is not listed below, it will not get published.
 PUBLISH_INTERVALS = {
+    "DPT": 10000,
     "GGA": 10000,
     "GLL": 10000,
     "HDT": 10000,
