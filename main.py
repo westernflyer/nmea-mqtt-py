@@ -16,6 +16,7 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from logging.handlers import SysLogHandler
+from typing import Generator
 
 import paho.mqtt.client as mqtt
 
@@ -117,7 +118,7 @@ def on_publish(client, userdata, mid, reason_code, properties):
         log.debug(f"Message id {mid} published.")
 
 
-def gen_nmea(host: str, port: int):
+def gen_nmea(host: str, port: int) -> Generator[str]:
     """Listen for NMEA data on a TCP socket."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(NMEA_TIMEOUT)
@@ -133,7 +134,7 @@ def publish_nmea(mqtt_client: mqtt.Client, parsed_nmea: dict[str, str | float | 
     topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{parsed_nmea['sentence_type']}"
     info = mqtt_client.publish(topic, json.dumps(parsed_nmea), qos=0)
     if DEBUG >= 1 and info.mid % 1000 == 0:
-        log.debug(f"{info.mid}: {parsed_nmea['sentence_type']} {parsed_nmea["timestamp"]}")
+        log.debug(f"{info.mid}: {parsed_nmea['sentence_type']} {parsed_nmea['timestamp']}")
 
 
 @contextmanager
@@ -146,6 +147,7 @@ def managed_connection():
         print("Stopping loop and disconnecting from MQTT broker. Goodbye!")
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
+
 
 def warn_print_sleep(msg: str):
     """Print and log a warning message, then sleep for NMEA_RETRY_WAIT seconds."""

@@ -14,7 +14,7 @@ from functools import reduce
 
 
 class UnknownNMEASentence(ValueError):
-    "Raised whe an unknown NMEA sentence is received."
+    """Raised whe an unknown NMEA sentence is received."""
     sentence_type: str
 
 
@@ -95,7 +95,7 @@ def parse_datetime(date_str: str, time_str: str) -> str | None:
         return None
 
 
-def dm_to_sd(dm: str | None) -> float:
+def dm_to_sd(dm: str | None) -> float | None:
     """
     Converts a geographic co-ordinate given in "degrees/minutes" dddmm.mmmm
     format (eg, "12319.943281" = 123 degrees, 19.943281 minutes) to a signed
@@ -129,7 +129,7 @@ def parse_longitude(longitude: str | None, hemisphere: str = 'E') -> float:
     return val
 
 
-def parse_float(float_str: str) -> float:
+def parse_float(float_str: str) -> float | None:
     if float_str is None or float_str == '':
         return None
     try:
@@ -138,7 +138,7 @@ def parse_float(float_str: str) -> float:
         return None
 
 
-def parse_int(int_str: str) -> int:
+def parse_int(int_str: str) -> int | None:
     if int_str is None or int_str == '':
         return None
     try:
