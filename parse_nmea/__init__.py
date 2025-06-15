@@ -12,6 +12,9 @@ import re
 import time
 from functools import reduce
 
+# This is what is returned from all the decoders:
+type NmeaDict = dict[str, str | float | int | None]
+
 
 class UnknownNMEASentence(ValueError):
     """Raised whe an unknown NMEA sentence is received."""
@@ -26,7 +29,7 @@ class NMEAStatusError(ValueError):
     """Raised when an NMEA sentence has a bad status."""
 
 
-def parse(sentence: str) -> dict[str, str | float | int | None]:
+def parse(sentence: str) -> NmeaDict:
     """Parses an NMEA 0183 sentence into a dictionary."""
 
     if not sentence.startswith("$"):

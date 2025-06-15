@@ -5,7 +5,7 @@ For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_vlw_distance_trav
 from parse_nmea.__init__ import *
 
 
-def decode(parts: list[str]) -> dict[str, str | float | int | None]:
+def decode(parts: list[str]) -> NmeaDict:
     data = {
         "water_total_nm": parse_float(parts[1]),
         "water_since_reset_nm": parse_float(parts[3]),

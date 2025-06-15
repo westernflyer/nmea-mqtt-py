@@ -5,7 +5,7 @@ For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_mda_meteorologica
 from parse_nmea.__init__ import *
 
 
-def decode(parts: list[str]) -> dict[str, str | float | int | None]:
+def decode(parts: list[str]) -> NmeaDict:
     data = {
         "pressure_inches": parse_float(parts[1]),
         "pressure_bars": parse_float(parts[3]),

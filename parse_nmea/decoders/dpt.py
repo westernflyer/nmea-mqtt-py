@@ -5,7 +5,7 @@ For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_dpt_depth_of_wate
 from parse_nmea.__init__ import *
 
 
-def decode(parts: list[str]) -> dict[str, str | float | int | None]:
+def decode(parts: list[str]) -> NmeaDict:
     data = {
         "depth_below_transducer_meters": parse_float(parts[1]),
         "transducer_depth_meters": parse_float(parts[2]),

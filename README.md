@@ -21,7 +21,7 @@ boat. The message will look something like:
 
 ## Requirements
 
-- Requires Python v3.10 or greater.
+- Requires Python v3.12 or greater.
 - `git`
 - Root privileges to install (but not to run).
 
