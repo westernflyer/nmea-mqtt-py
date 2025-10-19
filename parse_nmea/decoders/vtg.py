@@ -5,7 +5,7 @@ For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_vtg_track_made_go
 from parse_nmea.__init__ import *
 
 
-def decode(parts: list[str]) -> dict[str, str | float | int | None]:
+def decode(parts: list[str]) -> NmeaDict:
     data = {
         "cog_true": parse_float(parts[1]),
         "cog_magnetic": parse_float(parts[3]),

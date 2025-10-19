@@ -5,7 +5,7 @@ For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_gll_geographic_po
 from parse_nmea.__init__ import *
 
 
-def decode(parts: list[str]) -> dict[str, str | float | int | None]:
+def decode(parts: list[str]) -> NmeaDict:
 
     # Check status
     status = parts[6].upper()

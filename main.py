@@ -129,7 +129,7 @@ def gen_nmea(host: str, port: int) -> Generator[str]:
                 yield line.strip()
 
 
-def publish_nmea(mqtt_client: mqtt.Client, parsed_nmea: dict[str, str | float | int | None]):
+def publish_nmea(mqtt_client: mqtt.Client, parsed_nmea: parse_nmea.NmeaDict):
     """Publish parsed NMEA data to MQTT."""
     topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{parsed_nmea['sentence_type']}"
     info = mqtt_client.publish(topic, json.dumps(parsed_nmea), qos=0)

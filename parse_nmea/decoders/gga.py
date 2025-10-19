@@ -5,7 +5,7 @@ For field descriptions: https://gpsd.gitlab.io/gpsd/NMEA.html#_gga_global_positi
 from parse_nmea.__init__ import *
 
 
-def decode(parts: list[str]) -> dict[str, str | float | int | None]:
+def decode(parts: list[str]) -> NmeaDict:
     data = {
         "timeUTC": parse_time(parts[1]),
         "latitude": parse_latitude(parts[2], parts[3]),
