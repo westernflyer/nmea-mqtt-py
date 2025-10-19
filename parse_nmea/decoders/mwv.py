@@ -17,7 +17,8 @@ def decode(parts: list[str]) -> dict[str, str | float | int | None]:
     if reference == 'T':
         key = "twa"
         value_key = "tws_knots"
-    elif reference == 'R':
+    elif reference == 'R' or not reference:
+        # Assume apparent (relative) if reference is missing.
         key = "awa"
         value_key = "aws_knots"
     else:
