@@ -36,14 +36,14 @@ def parse(sentence: str) -> NmeaDict:
         raise NMEAParsingError(f"Invalid NMEA sentence '{sentence}'")
 
     # If it's present, check the checksum
-    asterick = sentence.find('*')
-    if asterick != -1:
-        cs = checksum(sentence[1:asterick])
-        cs_msg = int(sentence[asterick + 1:], 16)
+    asterisk = sentence.find('*')
+    if asterisk != -1:
+        cs = checksum(sentence[1:asterisk])
+        cs_msg = int(sentence[asterisk + 1:], 16)
         if cs != cs_msg:
             raise NMEAParsingError(f"Checksum mismatch for sentence {sentence}")
         # Strip off the checksum:
-        sentence = sentence[:asterick]
+        sentence = sentence[:asterisk]
 
     parts = sentence.strip().split(',')
     sentence_type = parts[0][3:]
