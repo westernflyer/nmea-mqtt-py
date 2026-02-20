@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import math
 import random
 import sys
 import time
@@ -23,6 +24,68 @@ sys.path.insert(0, parent_dir)
 import parse_nmea
 from config import *
 
+# Simulator state
+class SimulatorState:
+    def __init__(self):
+        # Starting position (lat, lon)
+        self.lat = 45.5  # 45 degrees 30.0 minutes
+        self.lon = -122.666  # 122 degrees 40.0 minutes
+        
+        # Current Speed Over Ground (knots)
+        self.sog = 6.0
+        # Current Course Over Ground (degrees true)
+        self.cog = 45.0
+        # Current Heading (degrees true)
+        self.heading = 45.0
+
+        self.depth = 15.0
+        
+        # Last update time
+        self.last_update = time.time()
+        
+    def update(self):
+        now = time.time()
+        dt = now - self.last_update
+        self.last_update = now
+        
+        # Add some random fluctuations to SOG and COG
+        self.sog += random.uniform(-0.1, 0.1)
+        self.sog = max(0, min(self.sog, 20)) # Keep speed within 0-20 knots
+        
+        self.cog += random.uniform(-1.0, 1.0)
+        self.cog %= 360
+        
+        # Heading follows COG with some deviation
+        self.heading = (self.cog + random.uniform(-2.0, 2.0)) % 360
+        
+        # Update position based on SOG and COG
+        # 1 knot = 1 nautical mile per hour
+        # 1 nautical mile = 1 minute of latitude
+        # 1 minute of latitude = 1/60 degree
+        
+        # Distance traveled in nautical miles
+        distance_nm = (self.sog * dt) / 3600.0
+        
+        # Heading and course are in degrees true.
+        # NMEA 0183 convention: 0 is North, 90 is East, 180 is South, 270 is West.
+        # Math convention: 0 is East, 90 is North.
+        # Angle in math convention: angle_math = (90 - cog) % 360
+        angle_math = math.radians(90.0 - self.cog)
+
+        # Change in latitude (nm * sin(angle_math))
+        d_lat_deg = (distance_nm * math.sin(angle_math)) / 60.0
+        
+        # Change in longitude (nm * cos(angle_math) / cos(lat))
+        d_lon_deg = (distance_nm * math.cos(angle_math)) / (60.0 * math.cos(math.radians(self.lat)))
+        
+        self.lat += d_lat_deg
+        self.lon += d_lon_deg
+
+        self.depth += random.uniform(-1.0, 1.0)
+        if self.depth < 0:
+            self.depth = 15.0
+
+state = SimulatorState()
 
 def main():
     print("Starting NMEA simulator...")
@@ -41,6 +104,9 @@ def main():
 
     try:
         while True:
+            # Update the simulator state
+            state.update()
+            
             # Generate and publish data for each sentence type in PUBLISH_INTERVALS
             for sentence_type in PUBLISH_INTERVALS:
                 sentence = generate_sentence(sentence_type)
@@ -68,43 +134,43 @@ def generate_sentence(sentence_type: str) -> str | None:
     hhmmss = time.strftime("%H%M%S", now)
     ddmmyy = time.strftime("%d%m%y", now)
 
+    # Convert decimal degrees to NMEA format (DDMM.MMM)
+    lat_abs = abs(state.lat)
+    lat_deg = int(lat_abs)
+    lat_min = (lat_abs - lat_deg) * 60
+    lat_dir = 'N' if state.lat >= 0 else 'S'
+    
+    lon_abs = abs(state.lon)
+    lon_deg = int(lon_abs)
+    lon_min = (lon_abs - lon_deg) * 60
+    lon_dir = 'E' if state.lon >= 0 else 'W'
+
     if sentence_type == "GGA":
         # $GPGGA,hhmmss.ss,llll.ll,a,yyyyy.yy,a,x,xx,x.x,x.x,M,x.x,M,x.x,xxxx*hh
-        # $GPGGA,173500.00,4530.000,N,12240.000,W,1,08,0.9,10.0,M,-30.0,M,,*
-        lat = 4530.0 + random.uniform(-0.1, 0.1)
-        lon = 12240.0 + random.uniform(-0.1, 0.1)
-        payload = f"GPGGA,{hhmmss}.00,{lat:.3f},N,{lon:.3f},W,1,08,0.9,10.0,M,-30.0,M,,"
+        payload = f"GPGGA,{hhmmss}.00,{lat_deg:02d}{lat_min:06.3f},{lat_dir},{lon_deg:03d}{lon_min:06.3f},{lon_dir},1,08,0.9,10.0,M,-30.0,M,,"
     elif sentence_type == "RMC":
         # $GPRMC,hhmmss.ss,A,llll.ll,a,yyyyy.yy,a,x.x,x.x,ddmmyy,x.x,a*hh
-        lat = 4530.0 + random.uniform(-0.1, 0.1)
-        lon = 12240.0 + random.uniform(-0.1, 0.1)
-        sog = random.uniform(0, 15)
-        cog = random.uniform(0, 360)
-        payload = f"GPRMC,{hhmmss}.00,A,{lat:.3f},N,{lon:.3f},W,{sog:.1f},{cog:.1f},{ddmmyy},15.0,E"
+        payload = f"GPRMC,{hhmmss}.00,A,{lat_deg:02d}{lat_min:06.3f},{lat_dir},{lon_deg:03d}{lon_min:06.3f},{lon_dir},{state.sog:.1f},{state.cog:.1f},{ddmmyy},15.0,E"
     elif sentence_type == "DPT":
         # $IIDPT,x.x,x.x,x.x*hh
-        depth = random.uniform(5, 50)
+        depth = state.depth
         offset = 1.5
         payload = f"IIDPT,{depth:.1f},{offset:.1f},100.0"
     elif sentence_type == "MWV":
         # $IIMWV,x.x,a,x.x,a,A*hh
+        # Relative wind angle and speed
         angle = random.uniform(0, 360)
         speed = random.uniform(0, 30)
         payload = f"IIMWV,{angle:.1f},R,{speed:.1f},N,A"
     elif sentence_type == "HDT":
         # $IIHDT,x.x,T*hh
-        heading = random.uniform(0, 360)
-        payload = f"IIHDT,{heading:.1f},T"
+        payload = f"IIHDT,{state.heading:.1f},T"
     elif sentence_type == "GLL":
         # $GPGLL,llll.ll,a,yyyyy.yy,a,hhmmss.ss,A,a*hh
-        lat = 4530.0 + random.uniform(-0.1, 0.1)
-        lon = 12240.0 + random.uniform(-0.1, 0.1)
-        payload = f"GPGLL,{lat:.3f},N,{lon:.3f},W,{hhmmss}.00,A,A"
+        payload = f"GPGLL,{lat_deg:02d}{lat_min:06.3f},{lat_dir},{lon_deg:03d}{lon_min:06.3f},{lon_dir},{hhmmss}.00,A,A"
     elif sentence_type == "VTG":
         # $GPVTG,x.x,T,x.x,M,x.x,N,x.x,K,a*hh
-        cog = random.uniform(0, 360)
-        sog = random.uniform(0, 15)
-        payload = f"GPVTG,{cog:.1f},T,{cog - 15:.1f},M,{sog:.1f},N,{sog * 1.852:.1f},K,A"
+        payload = f"GPVTG,{state.cog:.1f},T,{state.cog - 15.0:.1f},M,{state.sog:.1f},N,{state.sog * 1.852:.1f},K,A"
     elif sentence_type == "ROT":
         # $IIROT,x.x,A*hh
         rot = random.uniform(-5, 5)
