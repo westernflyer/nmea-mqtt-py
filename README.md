@@ -82,3 +82,8 @@ appropriately. In particular, make sure the entries for `WorkingDirectory` and
    sudo systemctl enable nmea-mqtt
    ```
    
+## Copyright
+
+Copyright (c) 2025 Tom Keffer <tkeffer@gmail.com>
+
+See the file LICENSE.txt for your rights.
