@@ -3,6 +3,7 @@ config.py
 
 *~
 .idea
+.junie
 *.pyc
 __pycache__
 .venv
