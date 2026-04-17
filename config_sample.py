@@ -7,15 +7,16 @@ Instead, copy it to config.py, then edit the copy.
      nano config.py
 """
 
-# Set to 1 for debug messages
+# Set to 1 for debug messages, set to 2 for even more messages
 DEBUG = 0
 
 # Vessel related
 MMSI = 368323170
 
 # Settings related to the NMEA socket connection
-NMEA_HOST = "localhost"
-NMEA_PORT = 10110
+NMEA_SOCKETS = [
+    ("localhost", 10110),
+]
 NMEA_TIMEOUT = 20
 NMEA_RETRY_WAIT = 60
 
