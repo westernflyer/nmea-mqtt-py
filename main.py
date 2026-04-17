@@ -54,8 +54,8 @@ async def main():
 
                 # Tasks for MQTT background tasks and each NMEA reader
                 tasks = [asyncio.create_task(mqtt_misc_loop(mqtt_client))]
-                for host, port in NMEA_SOCKETS:
-                    tasks.append(asyncio.create_task(nmea_reader_task(host, port, mqtt_client, last_published)))
+                for channel, host, port in NMEA_SOCKETS:
+                    tasks.append(asyncio.create_task(nmea_reader_task(channel, host, port, mqtt_client, last_published)))
 
                 # Run until any task fails or we are cancelled
                 await asyncio.gather(*tasks)
@@ -73,7 +73,7 @@ async def main():
             await warn_print_sleep(f"Unexpected error: {e}")
 
 
-async def nmea_reader_task(host, port, mqtt_client, last_published):
+async def nmea_reader_task(channel, host, port, mqtt_client, last_published):
     """Task for reading from a single NMEA socket and publishing."""
     while True:
         try:
@@ -99,7 +99,8 @@ async def nmea_reader_task(host, port, mqtt_client, last_published):
                         # Check whether enough time has elapsed
                         delta = parsed_nmea["timestamp"] - last_published[sentence_type]
                         if delta >= PUBLISH_INTERVALS[sentence_type]:
-                            publish_nmea(mqtt_client, parsed_nmea)
+                            topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{channel}/{parsed_nmea['sentence_type']}"
+                            publish_nmea(mqtt_client, topic, parsed_nmea)
                             last_published[sentence_type] = parsed_nmea["timestamp"]
         except (ConnectionResetError, ConnectionRefusedError, asyncio.TimeoutError, socket.gaierror, OSError) as e:
             if isinstance(e, OSError) and e.errno not in [errno.ENETUNREACH, errno.EHOSTUNREACH]:
@@ -126,8 +127,9 @@ def on_publish(client, userdata, mid, reason_code, properties):
 async def gen_nmea(host: str, port: int) -> AsyncGenerator[str, None]:
     """Listen for NMEA data on a TCP socket."""
     reader, writer = await asyncio.open_connection(host, port)
+    log.info(f"Connected to NMEA socket at {host}:{port}; timeout: {NMEA_TIMEOUT} seconds.")
+    print(f"Connected to NMEA socket at {host}:{port}; timeout: {NMEA_TIMEOUT} seconds.")
     try:
-        log.info(f"Connected to NMEA socket at {host}:{port}; timeout: {NMEA_TIMEOUT} seconds.")
         while True:
             # Use asyncio.wait_for to implement the timeout
             line = await asyncio.wait_for(reader.readline(), timeout=NMEA_TIMEOUT)
@@ -143,9 +145,8 @@ async def gen_nmea(host: str, port: int) -> AsyncGenerator[str, None]:
             pass
 
 
-def publish_nmea(mqtt_client: mqtt.Client, parsed_nmea: parse_nmea.NmeaDict):
+def publish_nmea(mqtt_client: mqtt.Client, topic: str,parsed_nmea: parse_nmea.NmeaDict):
     """Publish parsed NMEA data to MQTT."""
-    topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{parsed_nmea['sentence_type']}"
     info = mqtt_client.publish(topic, json.dumps(parsed_nmea), qos=0)
     if info.rc != mqtt.MQTT_ERR_SUCCESS:
         log.error(f"Failed to publish to MQTT: {info.rc}")

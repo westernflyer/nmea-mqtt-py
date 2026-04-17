@@ -13,9 +13,11 @@ DEBUG = 0
 # Vessel related
 MMSI = 368323170
 
-# Settings related to the NMEA socket connection
+# Settings related to the NMEA socket connection.
+# Three-way tuple: ("channel_name", "host", "port")
 NMEA_SOCKETS = [
-    ("localhost", 10110),
+    ("ch1", "localhost", 10110),
+    ("ch2", "localhost", 10111),
 ]
 NMEA_TIMEOUT = 20
 NMEA_RETRY_WAIT = 60
