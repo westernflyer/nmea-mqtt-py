@@ -13,8 +13,8 @@ DEBUG = 0
 # Vessel related
 MMSI = 368323170
 
-# Settings related to the NMEA socket connection.
-# Three-way tuple: ("channel_name", "host", "port")
+# NMEA socket connection.  NMEA_SOCKETS is a list of 3-way tuples (channel, ip, port), where
+# channel is a string.
 NMEA_SOCKETS = [
     ("ch1", "localhost", 10110),
     ("ch2", "localhost", 10111),

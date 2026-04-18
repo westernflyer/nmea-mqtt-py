@@ -40,8 +40,10 @@ async def main():
     log.info("Starting up nmea-mqtt.  ")
     log.info("Debug level: %s", DEBUG)
 
-    # The time each topic was last published. Shared among all readers.
-    last_published = defaultdict(lambda: 0.0)
+    # The time each topic was last published.
+    last_published = {}
+    for channel, _, _ in NMEA_SOCKETS:
+        last_published[channel] = defaultdict(lambda: 0.0)
 
     while True:
         try:
@@ -55,7 +57,8 @@ async def main():
                 # Tasks for MQTT background tasks and each NMEA reader
                 tasks = [asyncio.create_task(mqtt_misc_loop(mqtt_client))]
                 for channel, host, port in NMEA_SOCKETS:
-                    tasks.append(asyncio.create_task(nmea_reader_task(channel, host, port, mqtt_client, last_published)))
+                    tasks.append(asyncio.create_task(
+                        nmea_reader_task(channel, host, port, mqtt_client, last_published[channel])))
 
                 # Run until any task fails or we are cancelled
                 await asyncio.gather(*tasks)
@@ -75,6 +78,7 @@ async def main():
 
 async def nmea_reader_task(channel, host, port, mqtt_client, last_published):
     """Task for reading from a single NMEA socket and publishing."""
+    print(f"Starting NMEA reader for {host}:{port} on channel {channel}")
     while True:
         try:
             async for line in gen_nmea(host, port):
@@ -145,7 +149,7 @@ async def gen_nmea(host: str, port: int) -> AsyncGenerator[str, None]:
             pass
 
 
-def publish_nmea(mqtt_client: mqtt.Client, topic: str,parsed_nmea: parse_nmea.NmeaDict):
+def publish_nmea(mqtt_client: mqtt.Client, topic: str, parsed_nmea: parse_nmea.NmeaDict):
     """Publish parsed NMEA data to MQTT."""
     info = mqtt_client.publish(topic, json.dumps(parsed_nmea), qos=0)
     if info.rc != mqtt.MQTT_ERR_SUCCESS:
