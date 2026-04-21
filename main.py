@@ -40,13 +40,14 @@ async def main():
     log.info("Starting up nmea-mqtt.  ")
     log.info("Debug level: %s", DEBUG)
 
-    # The time each topic was last published.
+    # Set up the dictionary of last published timestamps.
     last_published = {}
     for channel, _, _ in NMEA_SOCKETS:
         last_published[channel] = defaultdict(lambda: 0.0)
 
     while True:
         try:
+            # Set up the MQTT connection
             async with managed_connection() as mqtt_client:
                 if MQTT_USERNAME and MQTT_PASSWORD:
                     mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
@@ -77,7 +78,15 @@ async def main():
 
 
 async def nmea_reader_task(channel, host, port, mqtt_client, last_published):
-    """Task for reading from a single NMEA socket and publishing."""
+    """Task for reading from a single NMEA socket and publishing.
+    Args:
+        channel (str): The channel identifier for the NMEA socket.
+        host (str): The hostname or IP address of the NMEA socket.
+        port (int): The port number of the NMEA socket.
+        mqtt_client (mqtt.Client): The MQTT client instance for publishing.
+        last_published (dict): Dictionary to track the last published timestamp for each NMEA
+            sentence type.
+    """
     print(f"Starting NMEA reader for {host}:{port} on channel {channel}")
     while True:
         try:

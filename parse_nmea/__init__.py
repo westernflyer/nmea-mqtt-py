@@ -17,7 +17,7 @@ type NmeaDict = dict[str, str | float | int | None]
 
 
 class UnknownNMEASentence(ValueError):
-    """Raised whe an unknown NMEA sentence is received."""
+    """Raised when an unknown NMEA sentence is received."""
     sentence_type: str
 
 

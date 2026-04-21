@@ -6,8 +6,9 @@ JSON.
 ## MQTT output
 
 As an example of what gets published, let's look at NMEA sentence `GLL`. It will
-get published as topic `nmea/MMSI/GLL`, where `MMSI` is the MMSI number of the
-boat. The message will look something like:
+get published as topic `nmea/MMSI/ch1/GLL`, where `MMSI` is the MMSI number of
+the boat, and `ch` is the channel that the message was received on. The message
+will look something like:
 
     {
     "latitude": 22.929,
