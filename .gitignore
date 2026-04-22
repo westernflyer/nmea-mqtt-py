@@ -1,6 +1,8 @@
 # Ignore config.py so we don't accidentally commit user credentials
 config.py
 
+sample_data
+
 *~
 .idea
 .junie

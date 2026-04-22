@@ -41,9 +41,7 @@ async def main():
     log.info("Debug level: %s", DEBUG)
 
     # Set up the dictionary of last published timestamps.
-    last_published = {}
-    for channel, _, _ in NMEA_SOCKETS:
-        last_published[channel] = defaultdict(lambda: 0.0)
+    last_published = defaultdict(lambda: 0.0)
 
     while True:
         try:
@@ -57,16 +55,17 @@ async def main():
 
                 # Tasks for MQTT background tasks and each NMEA reader
                 tasks = [asyncio.create_task(mqtt_misc_loop(mqtt_client))]
-                for channel, host, port in NMEA_SOCKETS:
+                for host, port in NMEA_SOCKETS:
                     tasks.append(asyncio.create_task(
-                        nmea_reader_task(channel, host, port, mqtt_client, last_published[channel])))
+                        nmea_reader_task(host, port, mqtt_client, last_published)))
 
                 # Run until any task fails or we are cancelled
                 await asyncio.gather(*tasks)
 
         except asyncio.CancelledError:
             break
-        except (ConnectionResetError, ConnectionRefusedError, TimeoutError, socket.gaierror, OSError) as e:
+        except (ConnectionResetError, ConnectionRefusedError, TimeoutError, socket.gaierror,
+                OSError) as e:
             # Retry if it's a network unreachable error. Otherwise, reraise the exception.
             if isinstance(e, OSError) and e.errno not in [errno.ENETUNREACH, errno.EHOSTUNREACH]:
                 log.exception("Unexpected OS error in main loop")
@@ -77,45 +76,45 @@ async def main():
             await warn_print_sleep(f"Unexpected error: {e}")
 
 
-async def nmea_reader_task(channel, host, port, mqtt_client, last_published):
+async def nmea_reader_task(host, port, mqtt_client, last_published):
     """Task for reading from a single NMEA socket and publishing.
     Args:
-        channel (str): The channel identifier for the NMEA socket.
         host (str): The hostname or IP address of the NMEA socket.
         port (int): The port number of the NMEA socket.
         mqtt_client (mqtt.Client): The MQTT client instance for publishing.
         last_published (dict): Dictionary to track the last published timestamp for each NMEA
-            sentence type.
+            address field.
     """
-    print(f"Starting NMEA reader for {host}:{port} on channel {channel}")
+    print(f"Starting NMEA reader for {host}:{port}")
     while True:
         try:
             async for line in gen_nmea(host, port):
                 try:
                     # Parse the line. Be prepared to catch any exceptions.
-                    parsed_nmea = parse_nmea.parse(line)
+                    address_field, parsed_nmea = parse_nmea.parse(line)
                 except parse_nmea.UnknownNMEASentence as e:
-                    if e.sentence_type in PUBLISH_INTERVALS:
-                        # The user asked for a sentence type, yet we don't know anything about it.
-                        # File a warning.
+                    if e.address_field in PUBLISH_INTERVALS:
+                        # The user asked for an address field type,
+                        # yet we don't know anything about it. File a warning.
                         log.warning(f"No decoder for sentence type: {e.sentence_type}")
-                        print(f"No decoder for NMEA sentence type: {e.sentence_type}", file=sys.stderr)
+                        print(f"No decoder for NMEA sentence type: {e.sentence_type}",
+                              file=sys.stderr)
                         continue
                 except (parse_nmea.NMEAParsingError, parse_nmea.NMEAStatusError) as e:
                     log.warning("NMEA error: %s", e)
                     print(f"NMEA error: {e}", file=sys.stderr)
                     continue
                 else:
-                    # Parsing went ok. Check to see whether this sentence type should be published
-                    sentence_type = parsed_nmea["sentence_type"]
-                    if sentence_type in PUBLISH_INTERVALS:
+                    # Parsing went ok. Check to see whether this sentence should be published
+                    if address_field in PUBLISH_INTERVALS:
                         # Check whether enough time has elapsed
-                        delta = parsed_nmea["timestamp"] - last_published[sentence_type]
-                        if delta >= PUBLISH_INTERVALS[sentence_type]:
-                            topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{channel}/{parsed_nmea['sentence_type']}"
+                        delta = parsed_nmea["timestamp"] - last_published[address_field]
+                        if delta >= PUBLISH_INTERVALS[address_field]:
+                            topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{address_field}"
                             publish_nmea(mqtt_client, topic, parsed_nmea)
-                            last_published[sentence_type] = parsed_nmea["timestamp"]
-        except (ConnectionResetError, ConnectionRefusedError, asyncio.TimeoutError, socket.gaierror, OSError) as e:
+                            last_published[address_field] = parsed_nmea["timestamp"]
+        except (ConnectionResetError, ConnectionRefusedError, asyncio.TimeoutError,
+                socket.gaierror, OSError) as e:
             if isinstance(e, OSError) and e.errno not in [errno.ENETUNREACH, errno.EHOSTUNREACH]:
                 log.warning(f"Unexpected OS error on {host}:{port}: {e}")
             await warn_print_sleep(f"Error reading from {host}:{port}: {e}")

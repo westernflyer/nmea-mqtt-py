@@ -18,6 +18,7 @@ type NmeaDict = dict[str, str | float | int | None]
 
 class UnknownNMEASentence(ValueError):
     """Raised when an unknown NMEA sentence is received."""
+    address_field: str
     sentence_type: str
 
 
@@ -29,8 +30,33 @@ class NMEAStatusError(ValueError):
     """Raised when an NMEA sentence has a bad status."""
 
 
-def parse(sentence: str) -> NmeaDict:
-    """Parses an NMEA 0183 sentence into a dictionary."""
+def parse(sentence: str) -> tuple[str, NmeaDict]:
+    """
+    Parses an NMEA sentence and extracts relevant information contained in it.
+
+    This function validates the given NMEA sentence for correctness, including an
+    optional checksum verification, identifies the sentence type, and delegates
+    the parsing of the specific sentence type to an appropriate decoder module.
+    It then returns the parsed data along with additional metadata.
+
+    Parameters:
+        sentence (str): The NMEA sentence to be parsed. It must start with a '$' and
+        optionally include a checksum for validation. If the sentence is invalid,
+        an error is raised.
+
+    Returns:
+        tuple: A tuple containing:
+            - `address_field` (str): The address field of the NMEA sentence, such as `GPGLL`
+            - `data` (NmeaDict): A dictionary containing the parsed data from the
+            sentence, including additional metadata such as the sentence type and
+            a timestamp.
+
+    Raises:
+        NMEAParsingError: If the sentence does not start with a `$` or if the
+            optional checksum validation fails.
+        UnknownNMEASentence: If the NMEA sentence type is not supported, this error
+            is raised with additional information about the unsupported type.
+    """
 
     if not sentence.startswith("$"):
         raise NMEAParsingError(f"Invalid NMEA sentence '{sentence}'")
@@ -46,6 +72,11 @@ def parse(sentence: str) -> NmeaDict:
         sentence = sentence[:asterisk]
 
     parts = sentence.strip().split(',')
+    # For a sentence such as $GPGLL:
+    #   - Address field is GPGLL
+    #   - Talker ID is GP
+    #   - Sentence type is GLL.
+    address_field = parts[0][1:]
     sentence_type = parts[0][3:]
 
     # Dynamically import the appropriate decoder module
@@ -53,6 +84,7 @@ def parse(sentence: str) -> NmeaDict:
         m = importlib.import_module(f"parse_nmea.decoders.{sentence_type.lower()}")
     except ModuleNotFoundError:
         e = UnknownNMEASentence(f"Unsupported NMEA sentence type {sentence_type}")
+        e.address_field = address_field
         e.sentence_type = sentence_type
         raise e
 
@@ -63,7 +95,7 @@ def parse(sentence: str) -> NmeaDict:
     data["sentence_type"] = sentence_type.upper()
     data["timestamp"] = int(time.time() * 1000 + 0.5)
 
-    return data
+    return address_field, data
 
 
 def checksum(nmea_str: str) -> int:

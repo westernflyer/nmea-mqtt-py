@@ -13,11 +13,10 @@ DEBUG = 0
 # Vessel related
 MMSI = 368323170
 
-# NMEA socket connection.  NMEA_SOCKETS is a list of 3-way tuples (channel, ip, port), where
-# channel is a string.
+# NMEA sockets and ports to monitor.
 NMEA_SOCKETS = [
-    ("ch1", "localhost", 10110),
-    ("ch2", "localhost", 10111),
+    ("localhost", 10110),
+    ("localhost", 10111),
 ]
 NMEA_TIMEOUT = 20
 NMEA_RETRY_WAIT = 60
@@ -29,17 +28,19 @@ MQTT_TOPIC_PREFIX = "nmea"
 MQTT_USERNAME = ""
 MQTT_PASSWORD = ""
 
-# How often to publish in milliseconds. If a sentence is not listed below, it will not get published.
+# How often to publish in milliseconds. If an address field  is not listed below,
+# it will not get published.
 PUBLISH_INTERVALS = {
-    "DPT": 10000,
-    "GGA": 10000,
-    "GLL": 10000,
-    "HDT": 10000,
-    "MDA": 10000,
-    "MWV": 10000,
-    "RMC": 10000,
-    "ROT": 10000,
-    "RSA": 10000,
-    "VTG": 10000,
-    "VWR": 10000,
+    # "GPGGA" : 10000,  # Lat, lon plus quality indicators.
+    "GPGLL" : 10000,    # Lat, lon
+    # "GPRMC" : 10000,  # Lat, lon, SOG, COG
+    "GPVTG" : 10000,    # COG & SOG
+    "HEHDT" : 10000,    # Heading - True
+    "IIMDA" : 10000,    # Met data. Baro, temperature, true wind
+    "IIRSA" : 10000,    # Rudder Sensor Angle
+    "SDDPT" : 10000,    # Depth of water
+    "TIROT" : 10000,    # Rate of turn
+    # "WIMWV" : 10000,    # Wind speed and angle. Relative only on Flyer.
+    "WIVWR" : 10000,    # Relative wind speed and angle - Airmar
+    "FTMWV" : 10000,    # Relative wind speed and angle - FT602
 }
