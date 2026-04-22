@@ -105,6 +105,10 @@ async def nmea_reader_task(host, port, mqtt_client, last_published):
                     print(f"NMEA error: {e}", file=sys.stderr)
                     continue
                 else:
+                    # Hack for dealing with the FT602. Give it a different talker ID, so it doesn't
+                    # collide with the Airmar 200WX.
+                    if port == 60002 and address_field == "WIMWV":
+                        address_field = "FTMWV"
                     # Parsing went ok. Check to see whether this sentence should be published
                     if address_field in PUBLISH_INTERVALS:
                         # Check whether enough time has elapsed
