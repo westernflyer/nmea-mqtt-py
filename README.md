@@ -5,10 +5,9 @@ JSON.
 
 ## MQTT output
 
-As an example of what gets published, let's look at NMEA sentence `GLL`. It will
-get published as topic `nmea/MMSI/ch1/GLL`, where `MMSI` is the MMSI number of
-the boat, and `ch` is the channel that the message was received on. The message
-will look something like:
+As an example of what gets published, let's look at NMEA address field  `GPGLL`.
+It will get published as topic `nmea/MMSI/GPGLL`, where `MMSI` is the MMSI
+number of the boat. The message will look something like:
 
     {
     "latitude": 22.929,
@@ -19,6 +18,9 @@ will look something like:
     "timestamp": 1743983731183
     }
 
+There is a hack in the code for the FT602. If an address field of `WIMWV` is
+received from port 60002, it will be changed to `FTMWV` to disambiguate it from
+sentences being sent by the Airmar 200WX.
 
 ## Requirements
 
