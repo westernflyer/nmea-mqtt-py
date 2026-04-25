@@ -7,38 +7,58 @@
 """Read NMEA sentences from multiple sockets, parse, then publish to MQTT."""
 from __future__ import annotations
 
+import argparse
 import asyncio
 import errno
 import json
 import logging
 import socket
 import sys
+import tomllib
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from logging.handlers import SysLogHandler, TimedRotatingFileHandler
 from typing import AsyncGenerator
 
 import paho.mqtt.client as mqtt
 
 import parse_nmea
-from config import *
 
-# Set up logging using the system logger
-if sys.platform == "darwin":
-    log_file = "/var/tmp/nmea-mqtt.log"
-    handler = TimedRotatingFileHandler(log_file, when='midnight', backupCount=7)
-else:
-    handler = SysLogHandler(address='/dev/log')
+# Global configuration dictionary
+config = {}
+# Logger will be initialized in main()
 log = logging.getLogger("nmea-mqtt")
-log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
-formatter = logging.Formatter('%(name)s: %(levelname)s %(message)s')
-handler.setFormatter(formatter)
-log.addHandler(handler)
-
 
 async def main():
+    global config
+    parser = argparse.ArgumentParser(description="Read NMEA sentences from multiple sockets, parse, then publish to MQTT.")
+    parser.add_argument("--config", default="config.toml", help="Path to the TOML configuration file (default: config.toml)")
+    args = parser.parse_args()
+
+    try:
+        with open(args.config, "rb") as f:
+            config = tomllib.load(f)
+    except FileNotFoundError:
+        print(f"Configuration file {args.config} not found.", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error loading configuration file {args.config}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Set up logging using the system logger
+    if sys.platform == "darwin":
+        from logging.handlers import TimedRotatingFileHandler
+        log_file = "/var/tmp/nmea-mqtt.log"
+        handler = TimedRotatingFileHandler(log_file, when='midnight', backupCount=7)
+    else:
+        from logging.handlers import SysLogHandler
+        handler = SysLogHandler(address='/dev/log')
+    log.setLevel(logging.DEBUG if config.get("DEBUG") else logging.INFO)
+    formatter = logging.Formatter('%(name)s: %(levelname)s %(message)s')
+    handler.setFormatter(formatter)
+    log.addHandler(handler)
+
     log.info("Starting up nmea-mqtt.  ")
-    log.info("Debug level: %s", DEBUG)
+    log.info("Debug level: %s", config.get("DEBUG"))
 
     # Set up the dictionary of last published timestamps.
     last_published = defaultdict(lambda: 0.0)
@@ -47,15 +67,18 @@ async def main():
         try:
             # Set up the MQTT connection
             async with managed_connection() as mqtt_client:
-                if MQTT_USERNAME and MQTT_PASSWORD:
-                    mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+                mqtt_username = config.get("MQTT_USERNAME")
+                mqtt_password = config.get("MQTT_PASSWORD")
+                if mqtt_username and mqtt_password:
+                    mqtt_client.username_pw_set(mqtt_username, mqtt_password)
                 mqtt_client.on_connect = on_connect
                 mqtt_client.on_publish = on_publish
-                mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+                mqtt_client.connect(config.get("MQTT_BROKER", "localhost"),
+                                    config.get("MQTT_PORT", 1883), 60)
 
                 # Tasks for MQTT background tasks and each NMEA reader
                 tasks = [asyncio.create_task(mqtt_misc_loop(mqtt_client))]
-                for host, port in NMEA_SOCKETS:
+                for host, port in config.get("NMEA_SOCKETS", []):
                     tasks.append(asyncio.create_task(
                         nmea_reader_task(host, port, mqtt_client, last_published)))
 
@@ -86,6 +109,7 @@ async def nmea_reader_task(host, port, mqtt_client, last_published):
             address field.
     """
     print(f"Starting NMEA reader for {host}:{port}")
+    publish_intervals = config.get("PUBLISH_INTERVALS", {})
     while True:
         try:
             async for line in gen_nmea(host, port):
@@ -93,7 +117,7 @@ async def nmea_reader_task(host, port, mqtt_client, last_published):
                     # Parse the line. Be prepared to catch any exceptions.
                     address_field, parsed_nmea = parse_nmea.parse(line)
                 except parse_nmea.UnknownNMEASentence as e:
-                    if e.address_field in PUBLISH_INTERVALS:
+                    if e.address_field in publish_intervals:
                         # The user asked for an address field type,
                         # yet we don't know anything about it. File a warning.
                         log.warning(f"No decoder for sentence type: {e.sentence_type}")
@@ -110,11 +134,13 @@ async def nmea_reader_task(host, port, mqtt_client, last_published):
                     if port == 60002 and address_field == "WIMWV":
                         address_field = "FTMWV"
                     # Parsing went ok. Check to see whether this sentence should be published
-                    if address_field in PUBLISH_INTERVALS:
+                    if address_field in publish_intervals:
                         # Check whether enough time has elapsed
                         delta = parsed_nmea["timestamp"] - last_published[address_field]
-                        if delta >= PUBLISH_INTERVALS[address_field]:
-                            topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{address_field}"
+                        if delta >= publish_intervals[address_field]:
+                            topic = (f"{config['MQTT_TOPIC_PREFIX']}/"
+                                     f"{config['MMSI']}/"
+                                     f"{address_field}")
                             publish_nmea(mqtt_client, topic, parsed_nmea)
                             last_published[address_field] = parsed_nmea["timestamp"]
         except (ConnectionResetError, ConnectionRefusedError, asyncio.TimeoutError,
@@ -135,20 +161,21 @@ def on_connect(client, userdata, flags, reason_code, properties):
 
 def on_publish(client, userdata, mid, reason_code, properties):
     """Callback for when a PUBLISH message is sent to the server."""
-    if DEBUG >= 2:
+    if config.get("DEBUG", 0) >= 2:
         print(f"Message id {mid} published.")
         log.debug(f"Message id {mid} published.")
 
 
 async def gen_nmea(host: str, port: int) -> AsyncGenerator[str, None]:
     """Listen for NMEA data on a TCP socket."""
+    nmea_timeout = config.get("NMEA_TIMEOUT", 20)
     reader, writer = await asyncio.open_connection(host, port)
-    log.info(f"Connected to NMEA socket at {host}:{port}; timeout: {NMEA_TIMEOUT} seconds.")
-    print(f"Connected to NMEA socket at {host}:{port}; timeout: {NMEA_TIMEOUT} seconds.")
+    log.info(f"Connected to NMEA socket at {host}:{port}; timeout: {nmea_timeout} seconds.")
+    print(f"Connected to NMEA socket at {host}:{port}; timeout: {nmea_timeout} seconds.")
     try:
         while True:
             # Use asyncio.wait_for to implement the timeout
-            line = await asyncio.wait_for(reader.readline(), timeout=NMEA_TIMEOUT)
+            line = await asyncio.wait_for(reader.readline(), timeout=nmea_timeout)
             if not line:
                 log.info(f"Connection closed by {host}:{port}")
                 break
@@ -166,7 +193,7 @@ def publish_nmea(mqtt_client: mqtt.Client, topic: str, parsed_nmea: parse_nmea.N
     info = mqtt_client.publish(topic, json.dumps(parsed_nmea), qos=0)
     if info.rc != mqtt.MQTT_ERR_SUCCESS:
         log.error(f"Failed to publish to MQTT: {info.rc}")
-    if DEBUG >= 1 and info.mid % 1000 == 0:
+    if config.get("DEBUG", 0) >= 1 and info.mid % 1000 == 0:
         log.debug(f"{info.mid}: {parsed_nmea['sentence_type']} {parsed_nmea['timestamp']}")
 
 
@@ -213,11 +240,12 @@ async def managed_connection():
 
 async def warn_print_sleep(msg: str):
     """Print and log a warning message, then sleep for NMEA_RETRY_WAIT seconds."""
+    nmea_retry_wait = config.get("NMEA_RETRY_WAIT", 60)
     print(msg, file=sys.stderr)
-    print(f"*** Waiting {NMEA_RETRY_WAIT} seconds before retrying.", file=sys.stderr)
+    print(f"*** Waiting {nmea_retry_wait} seconds before retrying.", file=sys.stderr)
     log.warning(msg)
-    log.warning(f"*** Waiting {NMEA_RETRY_WAIT} seconds before retrying.")
-    await asyncio.sleep(NMEA_RETRY_WAIT)
+    log.warning(f"*** Waiting {nmea_retry_wait} seconds before retrying.")
+    await asyncio.sleep(nmea_retry_wait)
     print("*** Retrying...", file=sys.stderr)
     log.warning("*** Retrying...")
 

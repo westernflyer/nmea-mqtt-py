@@ -8,11 +8,13 @@
 """Simulate NMEA sentences and publish them to MQTT."""
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import random
 import sys
 import time
+import tomllib
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
@@ -22,7 +24,9 @@ parent_dir = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, parent_dir)
 
 import parse_nmea
-from config import *
+
+# Global configuration dictionary
+config = {}
 
 # Simulator state
 class SimulatorState:
@@ -50,7 +54,7 @@ class SimulatorState:
         
         # Add some random fluctuations to SOG and COG
         self.sog += random.uniform(-0.1, 0.1)
-        self.sog = max(0, min(self.sog, 20)) # Keep speed within 0-20 knots
+        self.sog = max(0.0, min(self.sog, 20)) # Keep speed within 0-20 knots
         
         self.cog += random.uniform(-1.0, 1.0)
         self.cog %= 360
@@ -88,28 +92,49 @@ class SimulatorState:
 state = SimulatorState()
 
 def main():
+    global config
+    parser = argparse.ArgumentParser(description="Simulate NMEA sentences and publish them to MQTT.")
+    parser.add_argument("--config", default="config.toml", help="Path to the TOML configuration file (default: config.toml)")
+    args = parser.parse_args()
+
+    try:
+        with open(args.config, "rb") as f:
+            config = tomllib.load(f)
+    except FileNotFoundError:
+        print(f"Configuration file {args.config} not found.", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error loading configuration file {args.config}: {e}", file=sys.stderr)
+        sys.exit(1)
+
     print("Starting NMEA simulator...")
-    print(f"MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
-    print(f"Topic prefix: {MQTT_TOPIC_PREFIX}")
+    mqtt_broker = config.get("MQTT_BROKER", "localhost")
+    mqtt_port = config.get("MQTT_PORT", 1883)
+    mqtt_topic_prefix = config.get("MQTT_TOPIC_PREFIX", "nmea")
+    print(f"MQTT Broker: {mqtt_broker}:{mqtt_port}")
+    print(f"Topic prefix: {mqtt_topic_prefix}")
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    if MQTT_USERNAME and MQTT_PASSWORD:
-        client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+    mqtt_username = config.get("MQTT_USERNAME")
+    mqtt_password = config.get("MQTT_PASSWORD")
+    if mqtt_username and mqtt_password:
+        client.username_pw_set(mqtt_username, mqtt_password)
 
     client.on_connect = lambda c, u, f, r, p: print(
         f"Connected to MQTT broker with result code: {r}")
 
-    client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    client.connect(mqtt_broker, mqtt_port, 60)
     client.loop_start()
 
     try:
+        publish_intervals = config.get("PUBLISH_INTERVALS", {})
         while True:
             # Update the simulator state
             state.update()
             
             # Generate and publish data for each sentence type in PUBLISH_INTERVALS
-            for sentence_type in PUBLISH_INTERVALS:
-                sentence = generate_sentence(sentence_type)
+            for sentence_type in publish_intervals:
+                sentence = generate_sentence(sentence_type[2:])
                 if sentence:
                     try:
                         parsed_nmea = parse_nmea.parse(sentence)
@@ -201,7 +226,8 @@ def generate_sentence(sentence_type: str) -> str | None:
 
 def publish_nmea(client: mqtt.Client, parsed_nmea: parse_nmea.NmeaDict):
     """Publish parsed NMEA data to MQTT."""
-    topic = f"{MQTT_TOPIC_PREFIX}/{MMSI}/{parsed_nmea['sentence_type']}"
+    mmsi = config.get("MMSI", "unknown")
+    topic = f"{config.get('MQTT_TOPIC_PREFIX', 'nmea')}/{mmsi}/{parsed_nmea['sentence_type']}"
     client.publish(topic, json.dumps(parsed_nmea), qos=0)
     print(f"Published {parsed_nmea['sentence_type']} to {topic}")
 
