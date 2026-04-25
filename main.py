@@ -4,7 +4,30 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE.txt.txt file in the root directory of this source tree.
 #
-"""Read NMEA sentences from multiple sockets, parse, then publish to MQTT."""
+"""Read NMEA sentences from multiple sockets, parse, then publish to MQTT.
+
+Data Flow Summary
+1. Read: gen_nmea pulls raw bytes from multiple TCP sockets.
+2. Parse: parse_nmea.parse() validates the checksum and converts the raw string into a
+    Python dictionary.
+3. Filter: nmea_reader_task checks if enough time has passed since the last update for
+    that specific sensor type.
+4. Queue: Validated data is pushed into the asyncio.Queue.
+5. Publish: mqtt_publisher_task pulls from the queue and sends the JSON-encoded
+    payload to the MQTT broker using a topic structure like nmea/MMSI/SENTENCE_TYPE.
+
+Example Output
+When a GLL (Geographic Position - Latitude/Longitude) sentence is processed, it is published to
+a topic like nmea/123456789/GPGLL with a JSON body:
+{
+    "latitude": 36.805785,
+    "longitude": -121.785685,
+    "timeUTC": "18:00:15",
+    "gll_mode": "D",
+    "sentence_type": "GLL",
+    "timestamp": 1776794415269
+}
+"""
 from __future__ import annotations
 
 import argparse
@@ -65,25 +88,54 @@ async def main():
 
     while True:
         try:
+            # Shared queue for parsed NMEA sentences
+            queue = asyncio.Queue(maxsize=100)
+
             # Set up the MQTT connection
             async with managed_connection() as mqtt_client:
+                # Use an Event to signal when the MQTT connection is dropped
+                disconnect_event = asyncio.Event()
+
                 mqtt_username = config.get("MQTT_USERNAME")
                 mqtt_password = config.get("MQTT_PASSWORD")
                 if mqtt_username and mqtt_password:
                     mqtt_client.username_pw_set(mqtt_username, mqtt_password)
+
+                # Set up callbacks
                 mqtt_client.on_connect = on_connect
                 mqtt_client.on_publish = on_publish
+                mqtt_client.on_disconnect = lambda client, userdata, flags, rc, properties=None: \
+                    on_disconnect(client, userdata, flags, rc, disconnect_event, properties)
+
                 mqtt_client.connect(config.get("MQTT_BROKER", "localhost"),
                                     config.get("MQTT_PORT", 1883), 60)
 
-                # Tasks for MQTT background tasks and each NMEA reader
-                tasks = [asyncio.create_task(mqtt_misc_loop(mqtt_client))]
+                # Tasks for MQTT background tasks, publisher, and each NMEA reader
+                tasks = [
+                    asyncio.create_task(mqtt_misc_loop(mqtt_client)),
+                    asyncio.create_task(mqtt_publisher_task(mqtt_client, queue)),
+                    asyncio.create_task(wait_for_disconnect(disconnect_event))
+                ]
                 for host, port in config.get("NMEA_SOCKETS", []):
                     tasks.append(asyncio.create_task(
-                        nmea_reader_task(host, port, mqtt_client, last_published)))
+                        nmea_reader_task(host, port, queue, last_published)))
 
-                # Run until any task fails or we are cancelled
-                await asyncio.gather(*tasks)
+                # Run until any task fails, or we are cancelled, or MQTT disconnects.
+                # Use return_when=asyncio.FIRST_COMPLETED to catch failures or disconnects.
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+                # If we're here, one of the tasks has finished.
+                # If it's the disconnect_event task, then we should restart.
+                for task in done:
+                    try:
+                        task.result()
+                    except Exception as e:
+                        log.error(f"Task {task.get_coro()} failed with error: {e}")
+
+                # Cancel remaining tasks before restarting
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
 
         except asyncio.CancelledError:
             break
@@ -99,12 +151,30 @@ async def main():
             await warn_print_sleep(f"Unexpected error: {e}")
 
 
-async def nmea_reader_task(host, port, mqtt_client, last_published):
-    """Task for reading from a single NMEA socket and publishing.
+async def wait_for_disconnect(disconnect_event):
+    """Small task that waits for the disconnect event to be set."""
+    await disconnect_event.wait()
+    log.warning("MQTT disconnect event triggered.")
+
+
+async def mqtt_publisher_task(mqtt_client, queue):
+    """Task that consumes from the queue and publishes to MQTT."""
+    while True:
+        topic, parsed_nmea = await queue.get()
+        try:
+            publish_nmea(mqtt_client, topic, parsed_nmea)
+        except Exception as e:
+            log.error(f"Error in publisher task: {e}")
+        finally:
+            queue.task_done()
+
+
+async def nmea_reader_task(host, port, queue, last_published):
+    """Task for reading from a single NMEA socket and putting into the queue.
     Args:
         host (str): The hostname or IP address of the NMEA socket.
         port (int): The port number of the NMEA socket.
-        mqtt_client (mqtt.Client): The MQTT client instance for publishing.
+        queue (asyncio.Queue): The queue to put parsed NMEA data into.
         last_published (dict): Dictionary to track the last published timestamp for each NMEA
             address field.
     """
@@ -141,7 +211,7 @@ async def nmea_reader_task(host, port, mqtt_client, last_published):
                             topic = (f"{config['MQTT_TOPIC_PREFIX']}/"
                                      f"{config['MMSI']}/"
                                      f"{address_field}")
-                            publish_nmea(mqtt_client, topic, parsed_nmea)
+                            await queue.put((topic, parsed_nmea))
                             last_published[address_field] = parsed_nmea["timestamp"]
         except (ConnectionResetError, ConnectionRefusedError, asyncio.TimeoutError,
                 socket.gaierror, OSError) as e:
@@ -157,6 +227,13 @@ def on_connect(client, userdata, flags, reason_code, properties):
     """The callback for when the client receives a CONNACK response from the server."""
     print(f"Connected to MQTT broker with result code: '{reason_code}'")
     log.info(f"Connected to MQTT broker with result code: '{reason_code}'")
+
+
+def on_disconnect(client, userdata, flags, reason_code, disconnect_event, properties):
+    """The callback for when the client disconnects from the MQTT broker."""
+    print(f"Disconnected from MQTT broker with result code: '{reason_code}'")
+    log.warning(f"Disconnected from MQTT broker with result code: '{reason_code}'")
+    disconnect_event.set()
 
 
 def on_publish(client, userdata, mid, reason_code, properties):
