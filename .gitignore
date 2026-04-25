@@ -1,5 +1,5 @@
-# Ignore config.py so we don't accidentally commit user credentials
-config.py
+# Ignore config.toml so we don't accidentally commit user credentials
+config.toml
 
 sample_data
 
