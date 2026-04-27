@@ -124,8 +124,9 @@ async def main():
                 # Use return_when=asyncio.FIRST_COMPLETED to catch failures or disconnects.
                 done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
-                # If we're here, one of the tasks has finished.
-                # If it's the disconnect_event task, then we should restart.
+                # If we're here, one of the tasks has finished. The socket reads should never
+                # complete, so it must be the wait_for_disconnect() task, which means the MQTT
+                # broker disconnected. Tidy up, then restart.
                 for task in done:
                     try:
                         task.result()
