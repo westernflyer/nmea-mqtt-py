@@ -1,7 +1,25 @@
 ## nmea-mqtt-py
 
-Read NMEA 0183 sentences from a socket, parse them, then publish to MQTT as
-JSON.
+Read NMEA 0183 sentences from one or more sockets, parse them, then publish to
+MQTT as JSON.
+
+## Socket input
+
+One or more sockets can be monitored. See option `NMEA_SOCKETS` in `config.toml`. 
+
+The input is expected to be standard NMEA sentences, possibly with a checksum.
+For example,
+
+```aiignore
+$GPGLL,4202.8367,N,12416.0404,W,123408.8,A,D*44
+$SDDBT,347.24,f,105.84,M,57.87,F*05
+$GPDTM,W84,,0.0000,N,0.0000,E,0,W84*71
+$HETHS,327,D*30
+$WIMWV,20.4,R,3.19,N,A*2E
+$IIVHW,327,T,308.4,M,,N,,K*42
+$IIVBW,,,V,-0,-0.01,A,,V,0,A*5C
+...
+```
 
 ## MQTT output
 
@@ -24,7 +42,8 @@ sentences being sent by the Airmar 200WX.
 
 ## Requirements
 
-- Requires Python v3.12 or greater.
+- Requires Python v3.12 or greater due to how type parameter syntax is used, and
+  how `asyncio` raises `Timeout` exceptions.
 - `git`
 - Root privileges to install (but not to run).
 
@@ -61,8 +80,8 @@ but make sure you use it consistently in what follows.
 
    ```
    cd ~/git/nmea-mqtt-py
-   cp config_sample.py config.py
-   nano config.py
+   cp config_sample.toml config.toml
+   nano config.toml
    ```
 
 5. Time to install a systemd service file. Log into an account that has root

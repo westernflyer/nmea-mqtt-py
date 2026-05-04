@@ -38,6 +38,5 @@ IIMDA = 10000    # Met data. Baro, temperature, true wind
 IIRSA = 10000    # Rudder Sensor Angle
 SDDPT = 10000    # Depth of water
 TIROT = 10000    # Rate of turn
-# WIMWV = 10000  # Wind speed and angle. Relative only on Flyer.
-WIVWR = 10000    # Relative wind speed and angle - Airmar
+WIMWV = 10000    # Relative wind speed and angle - Airmar
 FTMWV = 10000    # Relative wind speed and angle - FT602
