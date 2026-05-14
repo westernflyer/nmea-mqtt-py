@@ -3,6 +3,8 @@ config.toml
 
 sample_data
 
+*.egg-info
+
 *~
 .idea
 .junie

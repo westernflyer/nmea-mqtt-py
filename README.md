@@ -42,8 +42,9 @@ sentences being sent by the Airmar 200WX.
 
 ## Requirements
 
-- Requires Python v3.12 or greater due to how type parameter syntax is used, and
-  how `asyncio` raises `Timeout` exceptions.
+- Requires Python v3.12 or greater. Earlier versions cannot be used due to how
+  parameter types have been specified, and how `asyncio` raises `Timeout` 
+  exceptions.
 - `git`
 - Root privileges to install (but not to run).
 
@@ -73,7 +74,7 @@ but make sure you use it consistently in what follows.
     cd ~/git/nmea-mqtt-py
     python3 -m venv .venv
     source .venv/bin/activate
-    pip install -r requirements.txt
+    pip install -e .
     ```
    
 4. Copy a configuration file into place, then edit it with your requirements.

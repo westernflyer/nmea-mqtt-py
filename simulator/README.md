@@ -1,3 +1,5 @@
+                        THIS IS NOT UP TO DATE!!
+
 # NMEA Simulator
 
 This directory contains a simulator that generates synthetic NMEA 0183 sentences and publishes them to an MQTT broker. 

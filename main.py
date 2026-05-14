@@ -328,8 +328,12 @@ async def warn_print_sleep(msg: str):
     log.warning("*** Retrying...")
 
 
-if __name__ == "__main__":
+def run():
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         sys.exit("Keyboard interrupt. Exiting.")
+
+
+if __name__ == "__main__":
+    run()
