@@ -50,7 +50,7 @@ Example configuration:
 
 ```toml
 [INFLUXDB]
-URL = "https://us-east-1-1.aws.cloud2.influxdata.com"
+HOST = "https://us-east-1-1.aws.cloud2.influxdata.com"
 TOKEN = "your-token"
 DATABASE = "your-database"
 TABLE = "nmea-data"

@@ -106,7 +106,7 @@ async def main():
                     subscribers.append(influx_queue)
                     try:
                         influx_client = InfluxDBClient3(
-                            host=influx_config.get("URL"),
+                            host=influx_config.get("HOST"),
                             token=influx_config.get("TOKEN"),
                             database=influx_config.get("DATABASE")
                         )
@@ -114,7 +114,7 @@ async def main():
                         log.error(f"Failed to initialize InfluxDB client: {e}")
                         influx_client = None
                 else:
-                    log.error("InfluxDB V3 client library not found. Please install influxdb-client-3.")
+                    log.error("InfluxDB V3 client library not found. Please install influxdb3-python.")
 
             # Set up the MQTT connection
             async with managed_connection() as mqtt_client:
@@ -232,16 +232,19 @@ async def influxdb_publisher_task(client, database, table, queue):
                 field_list.append(f"{k}={v_str}")
             field_str = ",".join(field_list)
 
-            # Timestamp in seconds
-            timestamp_sec = parsed_nmea["timestamp"] / 1000.0
-
             # Construct line protocol
-            lp = f"{table},{tag_str} {field_str} {timestamp_sec}"
+            lp = f"{table},{tag_str} {field_str} {parsed_nmea['timestamp']}"
 
-            await asyncio.to_thread(client.write, record=lp, database=database)
+            await asyncio.to_thread(
+                client.write,
+                record=lp,
+                database=database,
+                write_precision="ms"
+            )
         except Exception as e:
             log.error(f"Error in InfluxDB publisher task: {e}")
         finally:
+            log.debug(f"Published to InfluxDB: {lp}")
             queue.task_done()
 
 

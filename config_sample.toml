@@ -34,7 +34,7 @@ MQTT_PASSWORD = ""
 # DATABASE is the name of your database/bucket.
 # TABLE is the name of the table (measurement) to write to.
 # [INFLUXDB]
-# URL = "https://us-east-1-1.aws.cloud2.influxdata.com"
+# HOST = "https://us-east-1-1.aws.cloud2.influxdata.com"
 # TOKEN = "your-token"
 # DATABASE = "your-database"
 # TABLE = "nmea-data"
