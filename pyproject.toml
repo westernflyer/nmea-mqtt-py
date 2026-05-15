@@ -19,11 +19,13 @@ classifiers = [
 ]
 dependencies = [
     "paho-mqtt",
+    "influxdb3-python",
 ]
 
 [project.optional-dependencies]
 test = [
     "pytest",
+    "pytest-asyncio",
 ]
 
 [project.urls]

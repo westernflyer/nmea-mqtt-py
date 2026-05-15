@@ -38,6 +38,10 @@ import logging
 import socket
 import sys
 import tomllib
+try:
+    from influxdb_client_3 import InfluxDBClient3
+except ImportError:
+    InfluxDBClient3 = None
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -88,8 +92,29 @@ async def main():
 
     while True:
         try:
-            # Shared queue for parsed NMEA sentences
-            queue = asyncio.Queue(maxsize=100)
+            # Shared queues for parsed NMEA sentences
+            subscribers = []
+            mqtt_queue = asyncio.Queue(maxsize=100)
+            subscribers.append(mqtt_queue)
+
+            # InfluxDB subscriber
+            influx_config = config.get("INFLUXDB")
+            influx_client = None
+            if influx_config:
+                if InfluxDBClient3:
+                    influx_queue = asyncio.Queue(maxsize=100)
+                    subscribers.append(influx_queue)
+                    try:
+                        influx_client = InfluxDBClient3(
+                            host=influx_config.get("URL"),
+                            token=influx_config.get("TOKEN"),
+                            database=influx_config.get("DATABASE")
+                        )
+                    except Exception as e:
+                        log.error(f"Failed to initialize InfluxDB client: {e}")
+                        influx_client = None
+                else:
+                    log.error("InfluxDB V3 client library not found. Please install influxdb-client-3.")
 
             # Set up the MQTT connection
             async with managed_connection() as mqtt_client:
@@ -113,12 +138,18 @@ async def main():
                 # Tasks for MQTT background tasks, publisher, and each NMEA reader
                 tasks = [
                     asyncio.create_task(mqtt_misc_loop(mqtt_client)),
-                    asyncio.create_task(mqtt_publisher_task(mqtt_client, queue)),
+                    asyncio.create_task(mqtt_publisher_task(mqtt_client, mqtt_queue)),
                     asyncio.create_task(wait_for_disconnect(disconnect_event))
                 ]
+                if influx_client:
+                    tasks.append(asyncio.create_task(
+                        influxdb_publisher_task(influx_client,
+                                                influx_config.get("DATABASE"),
+                                                influx_config.get("TABLE", "nmea-data"),
+                                                influx_queue)))
                 for host, port in config.get("NMEA_SOCKETS", []):
                     tasks.append(asyncio.create_task(
-                        nmea_reader_task(host, port, queue, last_published)))
+                        nmea_reader_task(host, port, subscribers, last_published)))
 
                 # Run until any task fails, or we are cancelled, or MQTT disconnects.
                 # Use return_when=asyncio.FIRST_COMPLETED to catch failures or disconnects.
@@ -161,8 +192,11 @@ async def wait_for_disconnect(disconnect_event):
 async def mqtt_publisher_task(mqtt_client, queue):
     """Task that consumes from the queue and publishes to MQTT."""
     while True:
-        topic, parsed_nmea = await queue.get()
+        address_field, parsed_nmea = await queue.get()
         try:
+            topic = (f"{config['MQTT_TOPIC_PREFIX']}/"
+                     f"{config['MMSI']}/"
+                     f"{address_field}")
             publish_nmea(mqtt_client, topic, parsed_nmea)
         except Exception as e:
             log.error(f"Error in publisher task: {e}")
@@ -170,12 +204,50 @@ async def mqtt_publisher_task(mqtt_client, queue):
             queue.task_done()
 
 
-async def nmea_reader_task(host, port, queue, last_published):
+async def influxdb_publisher_task(client, database, table, queue):
+    """Task that consumes from the queue and publishes to InfluxDB V3."""
+    blacklist = {"sentence_type", "timeUTC", "gll_mode", "timestamp"}
+    while True:
+        address_field, parsed_nmea = await queue.get()
+        try:
+            # Prepare tags and fields according to requirements
+            mmsi = config.get("MMSI")
+            tag_str = f"mmsi={mmsi},sentence={address_field}"
+
+            field_list = []
+            for k, v in parsed_nmea.items():
+                if k in blacklist or v is None:
+                    continue
+                if isinstance(v, str):
+                    # Basic string escaping for line protocol
+                    v_escaped = v.replace('"', '\\"')
+                    v_str = f'"{v_escaped}"'
+                elif isinstance(v, int):
+                    v_str = f"{v}i"
+                else:
+                    v_str = str(v)
+                field_list.append(f"{k}={v_str}")
+            field_str = ",".join(field_list)
+
+            # Timestamp in seconds
+            timestamp_sec = parsed_nmea["timestamp"] / 1000.0
+
+            # Construct line protocol
+            lp = f"{table},{tag_str} {field_str} {timestamp_sec}"
+
+            await asyncio.to_thread(client.write, record=lp, database=database)
+        except Exception as e:
+            log.error(f"Error in InfluxDB publisher task: {e}")
+        finally:
+            queue.task_done()
+
+
+async def nmea_reader_task(host, port, subscribers, last_published):
     """Task for reading from a single NMEA socket and putting into the queue.
     Args:
         host (str): The hostname or IP address of the NMEA socket.
         port (int): The port number of the NMEA socket.
-        queue (asyncio.Queue): The queue to put parsed NMEA data into.
+        subscribers (list[asyncio.Queue]): List of queues to put parsed NMEA data into.
         last_published (dict): Dictionary to track the last published timestamp for each NMEA
             address field.
     """
@@ -209,10 +281,8 @@ async def nmea_reader_task(host, port, queue, last_published):
                         # Check whether enough time has elapsed
                         delta = parsed_nmea["timestamp"] - last_published[address_field]
                         if delta >= publish_intervals[address_field]:
-                            topic = (f"{config['MQTT_TOPIC_PREFIX']}/"
-                                     f"{config['MMSI']}/"
-                                     f"{address_field}")
-                            await queue.put((topic, parsed_nmea))
+                            for queue in subscribers:
+                                await queue.put((address_field, parsed_nmea))
                             last_published[address_field] = parsed_nmea["timestamp"]
         except (ConnectionResetError, ConnectionRefusedError, asyncio.TimeoutError,
                 socket.gaierror, OSError) as e:

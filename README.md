@@ -40,6 +40,25 @@ There is a hack in the code for the FT602. If an address field of `WIMWV` is
 received from port 60002, it will be changed to `FTMWV` to disambiguate it from
 sentences being sent by the Airmar 200WX.
 
+## InfluxDB output
+
+If the `[INFLUXDB]` section is present in `config.toml`, parsed NMEA data will also
+be written to an InfluxDB V3 database.
+
+Example configuration:
+
+```toml
+[INFLUXDB]
+URL = "https://us-east-1-1.aws.cloud2.influxdata.com"
+TOKEN = "your-token"
+DATABASE = "your-database"
+TABLE = "nmea-data"
+```
+
+The data is written using the InfluxDB line protocol. The MMSI and NMEA address
+field (e.g., `GPGLL`) are used as tags. Most other fields are written as InfluxDB
+fields, with the exception of `sentence_type`, `timeUTC`, and `gll_mode`.
+
 ## Requirements
 
 - Requires Python v3.12 or greater. Earlier versions cannot be used due to how
