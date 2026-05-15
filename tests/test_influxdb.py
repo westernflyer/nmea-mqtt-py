@@ -54,7 +54,7 @@ async def test_influxdb_publisher_task():
     lp = kwargs["record"]
     
     # Expected line protocol:
-    # nmea-data,mmsi=123456789,sentence=GPGLL latitude=44.623,longitude=-124.05156 1778857043.108
+    # nmea-data,mmsi=123456789,sentence=GPGLL latitude=44.623,longitude=-124.05156 1778857043108
     assert lp.startswith("nmea-data,mmsi=123456789,sentence=GPGLL ")
     
     # Check fields
@@ -78,4 +78,4 @@ async def test_influxdb_publisher_task():
     assert "timestamp" not in fields
     
     # Timestamp should be in seconds
-    assert float(timestamp) == 1778857043.108
+    assert float(timestamp) == 1778857043108

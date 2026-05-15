@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nmea-mqtt-py"
-version = "0.1.0"
+version = "1.0.0"
 authors = [
   { name="Tom Keffer", email="tkeffer@gmail.com" },
 ]
-description = "Read NMEA 0183 sentences from one or more sockets, parse them, then publish to MQTT as JSON."
+description = "Read NMEA 0183 sentences from one or more sockets, parse them, then publish to InfluxDB and MQTT"
 readme = "README.md"
 license = { text="MIT" }
 requires-python = ">=3.12"

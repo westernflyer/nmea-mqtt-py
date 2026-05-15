@@ -4,13 +4,15 @@ from unittest.mock import MagicMock
 import main
 import json
 
+main.publish_intervals['GPGLL'] = 1.0
+
 @pytest.mark.asyncio
 async def test_mqtt_publisher_task():
     # Mock config
     main.config = {
         "MMSI": "123456789",
         "MQTT_OPTIONS": {
-            "MQTT_TOPIC_PREFIX": "nmea"
+            "MQTT_TOPIC_PREFIX": "nmea-debug"
         }
     }
     
@@ -57,6 +59,6 @@ async def test_mqtt_publisher_task():
     topic = args[0]
     payload = args[1]
     
-    assert topic == "nmea/123456789/GPGLL"
+    assert topic == "nmea-debug/123456789/GPGLL"
     payload_dict = json.loads(payload)
     assert payload_dict == parsed_nmea
