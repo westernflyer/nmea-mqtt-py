@@ -4,17 +4,17 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE.txt.txt file in the root directory of this source tree.
 #
-"""Read NMEA sentences from multiple sockets, parse, then publish to MQTT.
+"""Read NMEA sentences from multiple sockets, parse, then publish to MQTT and InfluxDB.
 
 Data Flow Summary
 1. Read: gen_nmea pulls raw bytes from multiple TCP sockets.
 2. Parse: parse_nmea.parse() validates the checksum and converts the raw string into a
-    Python dictionary.
-3. Filter: nmea_reader_task checks if enough time has passed since the last update for
-    that specific sensor type.
-4. Queue: Validated data is pushed into the asyncio.Queue.
-5. Publish: mqtt_publisher_task pulls from the queue and sends the JSON-encoded
-    payload to the MQTT broker using a topic structure like nmea/MMSI/SENTENCE_TYPE.
+   Python dictionary.
+3. Queue: Validated data is pushed into two asyncio.Queues, one for InfluxDB and one for MQTT.
+4a. Save to InfluxDB. influxdb_publisher_task pulls from the queue, then saves to InfluxDB.
+4b. Publish to MQTT: mqtt_publisher_task pulls from the queue and checks whether enough time has
+    elapsed. If so, it sends the JSON-encoded payload to the MQTT broker using a topic structure
+    like nmea/MMSI/SENTENCE_TYPE.
 
 Example Output
 When a GLL (Geographic Position - Latitude/Longitude) sentence is processed, it is published to
@@ -50,13 +50,17 @@ import paho.mqtt.client as mqtt
 
 import parse_nmea
 
-# Global configuration dictionary
+# Global variables
 config = {}
+publish_intervals = {}
+last_published = defaultdict(lambda: 0.0)
+
 # Logger will be initialized in main()
 log = logging.getLogger("nmea-mqtt")
 
 async def main():
-    global config
+    global config, publish_intervals
+
     parser = argparse.ArgumentParser(description="Read NMEA sentences from multiple sockets, parse, then publish to MQTT.")
     parser.add_argument("--config", default="config.toml", help="Path to the TOML configuration file (default: config.toml)")
     args = parser.parse_args()
@@ -88,7 +92,7 @@ async def main():
     log.info("Debug level: %s", config.get("DEBUG"))
 
     # Set up the dictionary of last published timestamps.
-    last_published = defaultdict(lambda: 0.0)
+    publish_intervals = config.get("MQTT_PUBLISH_INTERVALS", {})
 
     while True:
         try:
@@ -193,18 +197,24 @@ async def wait_for_disconnect(disconnect_event):
 
 async def mqtt_publisher_task(mqtt_client, queue):
     """Task that consumes from the queue and publishes to MQTT."""
+    global last_published, publish_intervals
+
     while True:
         address_field, parsed_nmea = await queue.get()
-        try:
-            mqtt_config = config.get("MQTT_OPTIONS", {})
-            topic = (f"{mqtt_config.get('MQTT_TOPIC_PREFIX', 'nmea')}/"
-                     f"{config['MMSI']}/"
-                     f"{address_field}")
-            publish_nmea(mqtt_client, topic, parsed_nmea)
-        except Exception as e:
-            log.error(f"Error in publisher task: {e}")
-        finally:
-            queue.task_done()
+        delta = parsed_nmea["timestamp"] - last_published[address_field]
+        if delta >= publish_intervals[address_field]:
+
+            try:
+                mqtt_config = config.get("MQTT_OPTIONS", {})
+                topic = (f"{mqtt_config.get('MQTT_TOPIC_PREFIX', 'nmea')}/"
+                         f"{config['MMSI']}/"
+                         f"{address_field}")
+                publish_nmea(mqtt_client, topic, parsed_nmea)
+            except Exception as e:
+                log.error(f"Error in publisher task: {e}")
+            finally:
+                queue.task_done()
+                last_published[address_field] = parsed_nmea["timestamp"]
 
 
 async def influxdb_publisher_task(client, database, table, queue):
@@ -257,8 +267,8 @@ async def nmea_reader_task(host, port, subscribers, last_published):
         last_published (dict): Dictionary to track the last published timestamp for each NMEA
             address field.
     """
+    global publish_intervals
     print(f"Starting NMEA reader for {host}:{port}")
-    publish_intervals = config.get("MQTT_PUBLISH_INTERVALS", {})
     while True:
         try:
             async for line in gen_nmea(host, port):
@@ -282,14 +292,10 @@ async def nmea_reader_task(host, port, subscribers, last_published):
                     # collide with the Airmar 200WX.
                     if port == 60002 and address_field == "WIMWV":
                         address_field = "FTMWV"
-                    # Parsing went ok. Check to see whether this sentence should be published
+                    # Put the parsed nmea data in the subscriber queues
                     if address_field in publish_intervals:
-                        # Check whether enough time has elapsed
-                        delta = parsed_nmea["timestamp"] - last_published[address_field]
-                        if delta >= publish_intervals[address_field]:
-                            for queue in subscribers:
-                                await queue.put((address_field, parsed_nmea))
-                            last_published[address_field] = parsed_nmea["timestamp"]
+                        for queue in subscribers:
+                            await queue.put((address_field, parsed_nmea))
         except (ConnectionResetError, ConnectionRefusedError, asyncio.TimeoutError,
                 socket.gaierror, OSError) as e:
             if isinstance(e, OSError) and e.errno not in [errno.ENETUNREACH, errno.EHOSTUNREACH]:
