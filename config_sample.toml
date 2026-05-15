@@ -11,7 +11,8 @@ DEBUG = 0
 # Vessel related
 MMSI = 368323170
 
-# NMEA sockets and ports to monitor.
+# NMEA socket configuration
+[NMEA_OPTIONS]
 NMEA_SOCKETS = [
     ["localhost", 10110],
     ["localhost", 10111],
@@ -20,6 +21,7 @@ NMEA_TIMEOUT = 20
 NMEA_RETRY_WAIT = 60
 
 # MQTT configuration.
+[MQTT_OPTIONS]
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 MQTT_TOPIC_PREFIX = "nmea"
@@ -39,7 +41,7 @@ MQTT_PASSWORD = ""
 
 # How often to publish in milliseconds. If an address field is not listed below,
 # it will not get published.
-[PUBLISH_INTERVALS]
+[MQTT_PUBLISH_INTERVALS]
 # GPGGA = 10000  # Lat, lon plus quality indicators.
 GPGLL = 10000    # Lat, lon
 # GPRMC = 10000  # Lat, lon, SOG, COG

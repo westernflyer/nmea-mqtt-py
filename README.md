@@ -5,7 +5,8 @@ MQTT as JSON.
 
 ## Socket input
 
-One or more sockets can be monitored. See option `NMEA_SOCKETS` in `config.toml`. 
+One or more sockets can be monitored. See option `NMEA_SOCKETS` under the
+`[NMEA_OPTIONS]` section in `config.toml`. 
 
 The input is expected to be standard NMEA sentences, possibly with a checksum.
 For example,

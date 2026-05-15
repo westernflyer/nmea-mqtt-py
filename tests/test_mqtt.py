@@ -9,7 +9,9 @@ async def test_mqtt_publisher_task():
     # Mock config
     main.config = {
         "MMSI": "123456789",
-        "MQTT_TOPIC_PREFIX": "nmea"
+        "MQTT_OPTIONS": {
+            "MQTT_TOPIC_PREFIX": "nmea"
+        }
     }
     
     # Mock mqtt_client

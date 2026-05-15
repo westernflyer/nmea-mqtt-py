@@ -121,8 +121,9 @@ async def main():
                 # Use an Event to signal when the MQTT connection is dropped
                 disconnect_event = asyncio.Event()
 
-                mqtt_username = config.get("MQTT_USERNAME")
-                mqtt_password = config.get("MQTT_PASSWORD")
+                mqtt_config = config.get("MQTT_OPTIONS", {})
+                mqtt_username = mqtt_config.get("MQTT_USERNAME")
+                mqtt_password = mqtt_config.get("MQTT_PASSWORD")
                 if mqtt_username and mqtt_password:
                     mqtt_client.username_pw_set(mqtt_username, mqtt_password)
 
@@ -132,8 +133,8 @@ async def main():
                 mqtt_client.on_disconnect = lambda client, userdata, flags, rc, properties=None: \
                     on_disconnect(client, userdata, flags, rc, disconnect_event, properties)
 
-                mqtt_client.connect(config.get("MQTT_BROKER", "localhost"),
-                                    config.get("MQTT_PORT", 1883), 60)
+                mqtt_client.connect(mqtt_config.get("MQTT_BROKER", "localhost"),
+                                    mqtt_config.get("MQTT_PORT", 1883), 60)
 
                 # Tasks for MQTT background tasks, publisher, and each NMEA reader
                 tasks = [
@@ -147,7 +148,8 @@ async def main():
                                                 influx_config.get("DATABASE"),
                                                 influx_config.get("TABLE", "nmea-data"),
                                                 influx_queue)))
-                for host, port in config.get("NMEA_SOCKETS", []):
+                nmea_options = config.get("NMEA_OPTIONS", {})
+                for host, port in nmea_options.get("NMEA_SOCKETS", []):
                     tasks.append(asyncio.create_task(
                         nmea_reader_task(host, port, subscribers, last_published)))
 
@@ -194,7 +196,8 @@ async def mqtt_publisher_task(mqtt_client, queue):
     while True:
         address_field, parsed_nmea = await queue.get()
         try:
-            topic = (f"{config['MQTT_TOPIC_PREFIX']}/"
+            mqtt_config = config.get("MQTT_OPTIONS", {})
+            topic = (f"{mqtt_config.get('MQTT_TOPIC_PREFIX', 'nmea')}/"
                      f"{config['MMSI']}/"
                      f"{address_field}")
             publish_nmea(mqtt_client, topic, parsed_nmea)
@@ -252,7 +255,7 @@ async def nmea_reader_task(host, port, subscribers, last_published):
             address field.
     """
     print(f"Starting NMEA reader for {host}:{port}")
-    publish_intervals = config.get("PUBLISH_INTERVALS", {})
+    publish_intervals = config.get("MQTT_PUBLISH_INTERVALS", {})
     while True:
         try:
             async for line in gen_nmea(host, port):
@@ -316,7 +319,8 @@ def on_publish(client, userdata, mid, reason_code, properties):
 
 async def gen_nmea(host: str, port: int) -> AsyncGenerator[str, None]:
     """Listen for NMEA data on a TCP socket."""
-    nmea_timeout = config.get("NMEA_TIMEOUT", 20)
+    nmea_options = config.get("NMEA_OPTIONS", {})
+    nmea_timeout = nmea_options.get("NMEA_TIMEOUT", 20)
     reader, writer = await asyncio.open_connection(host, port)
     log.info(f"Connected to NMEA socket at {host}:{port}; timeout: {nmea_timeout} seconds.")
     print(f"Connected to NMEA socket at {host}:{port}; timeout: {nmea_timeout} seconds.")
@@ -388,7 +392,8 @@ async def managed_connection():
 
 async def warn_print_sleep(msg: str):
     """Print and log a warning message, then sleep for NMEA_RETRY_WAIT seconds."""
-    nmea_retry_wait = config.get("NMEA_RETRY_WAIT", 60)
+    nmea_options = config.get("NMEA_OPTIONS", {})
+    nmea_retry_wait = nmea_options.get("NMEA_RETRY_WAIT", 60)
     print(msg, file=sys.stderr)
     print(f"*** Waiting {nmea_retry_wait} seconds before retrying.", file=sys.stderr)
     log.warning(msg)
