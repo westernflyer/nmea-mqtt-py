@@ -150,7 +150,6 @@ async def main():
                     tasks.append(asyncio.create_task(
                         influxdb_publisher_task(influx_client,
                                                 influx_config.get("DATABASE"),
-                                                influx_config.get("TABLE", "nmea-data"),
                                                 influx_queue)))
                 nmea_options = config.get("NMEA_OPTIONS", {})
                 for host, port in nmea_options.get("NMEA_SOCKETS", []):
@@ -217,15 +216,17 @@ async def mqtt_publisher_task(mqtt_client, queue):
                 last_published[address_field] = parsed_nmea["timestamp"]
 
 
-async def influxdb_publisher_task(client, database, table, queue):
+async def influxdb_publisher_task(client, database, queue):
     """Task that consumes from the queue and publishes to InfluxDB V3."""
     blacklist = {"sentence_type", "timeUTC", "gll_mode", "timestamp"}
     while True:
         address_field, parsed_nmea = await queue.get()
+        talker = address_field[0:2]
+        sentence_type = address_field[2:]
         try:
-            # Prepare tags and fields according to requirements
+            # Prepare tags and fields
             mmsi = config.get("MMSI")
-            tag_str = f"mmsi={mmsi},sentence={address_field}"
+            tag_str = f"{sentence_type},mmsi={mmsi},talker={talker}"
 
             field_list = []
             for k, v in parsed_nmea.items():
@@ -243,7 +244,7 @@ async def influxdb_publisher_task(client, database, table, queue):
             field_str = ",".join(field_list)
 
             # Construct line protocol
-            lp = f"{table},{tag_str} {field_str} {parsed_nmea['timestamp']}"
+            lp = f"{tag_str} {field_str} {parsed_nmea['timestamp']}"
 
             await asyncio.to_thread(
                 client.write,

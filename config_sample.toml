@@ -32,12 +32,10 @@ MQTT_PASSWORD = ""
 # URL is the URL of your InfluxDB instance (e.g. https://us-east-1-1.aws.cloud2.influxdata.com)
 # TOKEN is your API token.
 # DATABASE is the name of your database/bucket.
-# TABLE is the name of the table (measurement) to write to.
 # [INFLUXDB]
 # HOST = "http://localhost:8181"
 # TOKEN = "your-token"
 # DATABASE = "your-database"
-# TABLE = "nmea-data"
 
 # How often to publish in milliseconds. If an address field is not listed below,
 # it will not get published.

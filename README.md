@@ -53,12 +53,23 @@ Example configuration:
 HOST = "https://us-east-1-1.aws.cloud2.influxdata.com"
 TOKEN = "your-token"
 DATABASE = "your-database"
-TABLE = "nmea-data"
 ```
 
-The data is written using the InfluxDB line protocol. The MMSI and NMEA address
-field (e.g., `GPGLL`) are used as tags. Most other fields are written as InfluxDB
-fields, with the exception of `sentence_type`, `timeUTC`, and `gll_mode`.
+The data is written using the InfluxDB line protocol. The sentence type (e.g.,
+`MWV`) is used as the table name. The MMSI number and NMEA talker are used as
+tags. Most other fields are written as InfluxDB fields, with the exception of
+`sentence_type`, `timeUTC`, and `gll_mode`.
+
+Here is an example of the data written to InfluxDB, shown in line protocol:
+
+```
+MWV,mmsi=368323170,talker=FT awa=236.0,aws_knots=2.0 1778933826541
+ROT,mmsi=368323170,talker=TI rate_of_turn=0.02 1778933827541
+MWV,mmsi=368323170,talker=WI awa=238.0,aws_knots=2.0 1778933828540
+GLL,mmsi=368323170,talker=GP latitude=44.62395333333333,longitude=-124.051575 1778933829541
+MWV,mmsi=368323170,talker=FT awa=245.0,aws_knots=2.0 1778933830540
+HDT,mmsi=368323170,talker=HE hdg_true=93.1 1778933831541
+```
 
 ## Requirements
 
