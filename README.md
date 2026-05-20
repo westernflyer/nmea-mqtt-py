@@ -58,7 +58,7 @@ DATABASE = "your-database"
 The data is written using the InfluxDB line protocol. The sentence type (e.g.,
 `MWV`) is used as the table name. The MMSI number and NMEA talker are used as
 tags. Most other fields are written as InfluxDB fields, with the exception of
-`sentence_type`, `timeUTC`, and `gll_mode`.
+`sentence_type`, `timeUTC`, and `gll_mode`, which are not written at all.
 
 Here is an example of the data written to InfluxDB, shown in line protocol:
 
@@ -73,7 +73,9 @@ HDT,mmsi=368323170,talker=HE hdg_true=93.1 1778933831541
 
 ## Requirements
 
-- Requires Python v3.12 or greater. Earlier versions cannot be used due to how
+- InfluxDB V3. You should have its "admin" token available.
+- An MQTT broker.
+- Python v3.12 or greater. Earlier versions cannot be used due to how
   parameter types have been specified, and how `asyncio` raises `Timeout` 
   exceptions.
 - `git`
@@ -116,7 +118,21 @@ but make sure you use it consistently in what follows.
    nano config.toml
    ```
 
-5. Time to install a systemd service file. Log into an account that has root
+5. Install a defaults environment file, `/etc/default/nmea-mqtt`, with the
+   following contents. Substitute your own values for the `INFLUXDB3_AUTH_TOKEN`
+   and `DEBUG` entries.
+
+    ```
+    # Environment variables for the nmea-mqtt service
+
+    # For InfluxDB:
+    INFLUXDB3_AUTH_TOKEN=YOUR-ADMIN-TOKEN-HERE
+
+    # Set debugging:
+    DEBUG=1
+    ```
+   
+6. Time to install a systemd service file. Log into an account that has root
 privileges. Copy the provided systemd service file into place, then edit it
 appropriately. In particular, make sure the entries for `WorkingDirectory` and
 `ExecStart` reflect your choices.
@@ -127,8 +143,9 @@ appropriately. In particular, make sure the entries for `WorkingDirectory` and
    sudo nano /etc/systemd/system/nmea-mqtt.service
    ```
    
-6. Reload the systemd manager to reflect your changes, then start the nmea-mqtt daemon.
-   Finally, enable the daemon so it will automatically start when the system boots.
+7. Reload the systemd manager to reflect your changes, then start the nmea-mqtt
+   daemon. Finally, enable the daemon so it will automatically start when the
+   system boots.
 
    ```
    sudo systemctl daemon-reload

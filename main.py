@@ -114,13 +114,19 @@ async def main():
             influx_client = None
             if influx_config:
                 if InfluxDBClient3:
+                    host_url = (os.getenv('INFLUXDB3_HOST_URL')
+                            or influx_config.get("HOST_URL"))
+                    auth_token = (os.getenv('INFLUXDB3_AUTH_TOKEN')
+                             or influx_config.get("AUTH_TOKEN"))
+                    database_name = (os.getenv('INFLUXDB3_DATABASE_NAME')
+                                or influx_config.get("DATABASE_NAME"))
                     influx_queue = asyncio.Queue(maxsize=100)
                     subscribers.append(influx_queue)
                     try:
                         influx_client = InfluxDBClient3(
-                            host=influx_config.get("HOST"),
-                            token=influx_config.get("TOKEN"),
-                            database=influx_config.get("DATABASE")
+                            host=host_url,
+                            token=auth_token,
+                            database=database_name
                         )
                     except Exception as e:
                         log.error(f"Failed to initialize InfluxDB client: {e}")
@@ -160,9 +166,9 @@ async def main():
                                                 influx_config.get("DATABASE"),
                                                 influx_queue)))
                 nmea_options = config.get("NMEA_OPTIONS", {})
-                for host, port in nmea_options.get("NMEA_SOCKETS", []):
+                for host_url, port in nmea_options.get("NMEA_SOCKETS", []):
                     tasks.append(asyncio.create_task(
-                        nmea_reader_task(host, port, subscribers, last_published)))
+                        nmea_reader_task(host_url, port, subscribers, last_published)))
 
                 # Run until any task fails, or we are cancelled, or MQTT disconnects.
                 # Use return_when=asyncio.FIRST_COMPLETED to catch failures or disconnects.

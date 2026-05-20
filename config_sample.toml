@@ -30,13 +30,15 @@ MQTT_USERNAME = ""
 MQTT_PASSWORD = ""
 
 # InfluxDB V3 configuration.
-# URL is the URL of your InfluxDB instance (e.g. https://us-east-1-1.aws.cloud2.influxdata.com)
-# TOKEN is your API token.
-# DATABASE is the name of your database/bucket.
+# HOST_URL is the URL of your InfluxDB instance (e.g. https://us-east-1-1.aws.cloud2.influxdata.com).
+#   Either set it here, or set environment variable INFLUXDB3_HOST_URL
+# TOKEN is your API token. Either set it here, or set environment variable INFLUXDB3_AUTH_TOKEN.
+# DATABASE_NAME is the name of your database/bucket. Either set it here, or set
+#   environment variable INFLUXDB3_DATABASE_NAME
 # [INFLUXDB]
-# HOST = "http://localhost:8181"
-# TOKEN = "your-token"
-# DATABASE = "your-database"
+# HOST_URL = "http://localhost:8181"
+# AUTH_TOKEN = "your-token"
+# DATABASE_NAME = "your-database"
 
 # How often to publish in milliseconds. If an address field is not listed below,
 # it will not get published.
