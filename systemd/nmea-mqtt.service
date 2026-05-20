@@ -17,6 +17,8 @@ StandardOutput=null
 StandardError=journal+console
 User=nmea
 Group=nmea
+# Optional file holding environment data
+EnvironmentFile=-/etc/defaults/nmea-mqtt
 
 [Install]
 WantedBy=multi-user.target

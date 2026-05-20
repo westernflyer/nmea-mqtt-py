@@ -35,6 +35,7 @@ import asyncio
 import errno
 import json
 import logging
+import os
 import socket
 import sys
 import tomllib
@@ -74,6 +75,13 @@ async def main():
     except Exception as e:
         print(f"Error loading configuration file {args.config}: {e}", file=sys.stderr)
         sys.exit(1)
+
+    if os.getenv("NMEA_MQTT_DEBUG") is not None:
+        try:
+            config["DEBUG"] = int(os.getenv("NMEA_MQTT_DEBUG"))
+        except ValueError:
+            print("Environment variable NMEA_MQTT_DEBUG must be an integer.", file=sys.stderr)
+            sys.exit(1)
 
     # Set up logging using the system logger
     if sys.platform == "darwin":

@@ -6,6 +6,7 @@
 #
 
 # Set to 1 for debug messages, set to 2 for even more messages
+# This can be overridden with the NMEA_MQTT_DEBUG environment variable.
 DEBUG = 0
 
 # Vessel related
