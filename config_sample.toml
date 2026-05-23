@@ -67,8 +67,8 @@ FTMWV = 10000    # Relative wind speed and angle - FT602
 # DATABASE_NAME = "nmea_database"
 
 # Batch sizes for writes to the database
-# Default: 50
-# BATCH_SIZE = 50
+# Default: 100
+# BATCH_SIZE = 100
 
 # Max batch interval before writing to the database in seconds
 # Default: 10
