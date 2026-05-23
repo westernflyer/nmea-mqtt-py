@@ -21,24 +21,16 @@ NMEA_SOCKETS = [
 NMEA_TIMEOUT = 20
 NMEA_RETRY_WAIT = 60
 
+# -----------------------------------------------------------------------------
 # MQTT configuration.
+# -----------------------------------------------------------------------------
+
 [MQTT_OPTIONS]
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 MQTT_TOPIC_PREFIX = "nmea"
 MQTT_USERNAME = ""
 MQTT_PASSWORD = ""
-
-# InfluxDB V3 configuration.
-# HOST_URL is the URL of your InfluxDB instance (e.g. https://us-east-1-1.aws.cloud2.influxdata.com).
-#   Either set it here, or set environment variable INFLUXDB3_HOST_URL
-# TOKEN is your API token. Either set it here, or set environment variable INFLUXDB3_AUTH_TOKEN.
-# DATABASE_NAME is the name of your database/bucket. Either set it here, or set
-#   environment variable INFLUXDB3_DATABASE_NAME
-# [INFLUXDB]
-# HOST_URL = "http://localhost:8181"
-# AUTH_TOKEN = "your-token"
-# DATABASE_NAME = "your-database"
 
 # How often to publish in milliseconds. If an address field is not listed below,
 # it will not get published.
@@ -54,3 +46,30 @@ SDDPT = 10000    # Depth of water
 TIROT = 10000    # Rate of turn
 WIMWV = 10000    # Relative wind speed and angle - Airmar
 FTMWV = 10000    # Relative wind speed and angle - FT602
+
+# -----------------------------------------------------------------------------
+# InfluxDB V3 configuration.
+# -----------------------------------------------------------------------------
+
+# Uncomment to store raw data in InfluxDB
+# [INFLUXDB]
+
+# Influx Host (env: INFLUXDB3_HOST_URL)
+# Default: "http://localhost:8181"
+# HOST_URL = "http://localhost:8181"
+
+# Authorization token (env: INFLUXDB3_AUTH_TOKEN)
+# Default: None
+# AUTH_TOKEN = "your-token"
+
+# Database name (env: INFLUXDB3_DATABASE_NAME)
+# Default: "nmea_database"
+# DATABASE_NAME = "nmea_database"
+
+# Batch sizes for writes to the database
+# Default: 50
+# BATCH_SIZE = 50
+
+# Max batch interval before writing to the database in seconds
+# Default: 10
+# BATCH_INTERVAL = 10

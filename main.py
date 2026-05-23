@@ -112,14 +112,19 @@ async def main():
             # InfluxDB subscriber
             influx_config = config.get("INFLUXDB")
             influx_client = None
-            if influx_config:
+            if influx_config is not None:
                 if InfluxDBClient3:
-                    host_url = (os.getenv('INFLUXDB3_HOST_URL')
-                            or influx_config.get("HOST_URL"))
                     auth_token = (os.getenv('INFLUXDB3_AUTH_TOKEN')
                              or influx_config.get("AUTH_TOKEN"))
+                    if not auth_token:
+                        log.error("InfluxDB V3 authentication token not found.")
+                        sys.exit("InfluxDB V3 authentication token not found. Please set "
+                                 "AUTH_TOKEN in the configuration file, or INFLUXDB_AUTH_TOKEN "
+                                 "in the environment.")
+                    host_url = (os.getenv('INFLUXDB3_HOST_URL')
+                            or influx_config.get("HOST_URL", "http://localhost:8181"))
                     database_name = (os.getenv('INFLUXDB3_DATABASE_NAME')
-                                or influx_config.get("DATABASE_NAME"))
+                                or influx_config.get("DATABASE_NAME", "nmea_database"))
                     influx_queue = asyncio.Queue(maxsize=100)
                     subscribers.append(influx_queue)
                     try:
@@ -163,7 +168,7 @@ async def main():
                 if influx_client:
                     tasks.append(asyncio.create_task(
                         influxdb_publisher_task(influx_client,
-                                                influx_config.get("DATABASE"),
+                                                database_name,
                                                 influx_queue)))
                 nmea_options = config.get("NMEA_OPTIONS", {})
                 for host_url, port in nmea_options.get("NMEA_SOCKETS", []):
@@ -230,47 +235,80 @@ async def mqtt_publisher_task(mqtt_client, queue):
                 last_published[address_field] = parsed_nmea["timestamp"]
 
 
-async def influxdb_publisher_task(client, database, queue):
-    """Task that consumes from the queue and publishes to InfluxDB V3."""
+def to_line_protocol(address_field, parsed_nmea):
+    """Convert parsed NMEA data into InfluxDB line protocol format."""
     blacklist = {"sentence_type", "timeUTC", "gll_mode", "timestamp"}
+    talker = address_field[0:2]
+    sentence_type = address_field[2:]
+
+    # Prepare tags and fields
+    mmsi = config.get("MMSI")
+    tag_str = f"{sentence_type},mmsi={mmsi},talker={talker}"
+
+    field_list = []
+    for k, v in parsed_nmea.items():
+        if k in blacklist or v is None:
+            continue
+        if isinstance(v, str):
+            # Basic string escaping for line protocol
+            v_escaped = v.replace('"', '\\"')
+            v_str = f'"{v_escaped}"'
+        elif isinstance(v, int):
+            v_str = f"{v}i"
+        else:
+            v_str = str(v)
+        field_list.append(f"{k}={v_str}")
+    field_str = ",".join(field_list)
+
+    # Construct line protocol
+    return f"{tag_str} {field_str} {parsed_nmea['timestamp']}"
+
+
+async def influxdb_publisher_task(client, database, queue):
+    """Task that consumes from the queue and publishes to InfluxDB V3 using batching."""
+    # Fail hard if there is no INFLUXDB configuration because we should not have gotten here.
+    influx_config = config["INFLUXDB"]
+    batch_size = influx_config.get("BATCH_SIZE", 100)
+    batch_interval = influx_config.get("BATCH_INTERVAL", 10)
+    log.info(f"Using batch size {batch_size} and batch interval {batch_interval} seconds.")
+
     while True:
-        address_field, parsed_nmea = await queue.get()
-        talker = address_field[0:2]
-        sentence_type = address_field[2:]
+        batch = []
+        # Wait for the first item without a timeout
+        item = await queue.get()
+        batch.append(item)
+
+        # Try to collect more items up to batch_size or until batch_interval expires
+        start_time = asyncio.get_event_loop().time()
+        while len(batch) < batch_size:
+            elapsed = asyncio.get_event_loop().time() - start_time
+            remaining = batch_interval - elapsed
+            if remaining <= 0:
+                break
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=remaining)
+                batch.append(item)
+            except asyncio.TimeoutError:
+                break
+
+        # Format the batch into line protocol
+        records = [to_line_protocol(address_field, parsed_nmea)
+                   for address_field, parsed_nmea in batch]
+
         try:
-            # Prepare tags and fields
-            mmsi = config.get("MMSI")
-            tag_str = f"{sentence_type},mmsi={mmsi},talker={talker}"
-
-            field_list = []
-            for k, v in parsed_nmea.items():
-                if k in blacklist or v is None:
-                    continue
-                if isinstance(v, str):
-                    # Basic string escaping for line protocol
-                    v_escaped = v.replace('"', '\\"')
-                    v_str = f'"{v_escaped}"'
-                elif isinstance(v, int):
-                    v_str = f"{v}i"
-                else:
-                    v_str = str(v)
-                field_list.append(f"{k}={v_str}")
-            field_str = ",".join(field_list)
-
-            # Construct line protocol
-            lp = f"{tag_str} {field_str} {parsed_nmea['timestamp']}"
-
             await asyncio.to_thread(
                 client.write,
-                record=lp,
+                record=records,
                 database=database,
                 write_precision="ms"
             )
+            if config.get("DEBUG", 0) >= 1:
+                log.debug(f"Published batch of {len(batch)} records to InfluxDB.")
         except Exception as e:
             log.error(f"Error in InfluxDB publisher task: {e}")
         finally:
-            log.debug(f"Published to InfluxDB: {lp}")
-            queue.task_done()
+            for _ in range(len(batch)):
+                queue.task_done()
 
 
 async def nmea_reader_task(host, port, subscribers, last_published):
