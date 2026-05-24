@@ -1,7 +1,7 @@
 ## nmea-mqtt-py
 
 Read NMEA 0183 sentences from one or more sockets, parse them, then publish to
-MQTT as JSON.
+MQTT as JSON and (optionally) store to an InfluxDB database.
 
 ## Socket input
 
@@ -24,9 +24,9 @@ $IIVBW,,,V,-0,-0.01,A,,V,0,A*5C
 
 ## MQTT output
 
-As an example of what gets published, let's look at NMEA address field  `GPGLL`.
-It will get published as topic `nmea/MMSI/GPGLL`, where `MMSI` is the MMSI
-number of the boat. The message will look something like:
+As an example of what gets published to MQTT, let's look at NMEA address field 
+`GPGLL`. It will get published as topic `nmea/MMSI/GPGLL`, where `MMSI` is the
+MMSI number of the boat. The message will look something like:
 
     {
     "latitude": 22.929,
