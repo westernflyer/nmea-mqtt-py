@@ -48,28 +48,19 @@ WIMWV = 10000    # Relative wind speed and angle - Airmar
 FTMWV = 10000    # Relative wind speed and angle - FT602
 
 # -----------------------------------------------------------------------------
-# InfluxDB V3 configuration.
+# DuckDB configuration.
 # -----------------------------------------------------------------------------
 
-# Uncomment to store raw data in InfluxDB
-# [INFLUXDB]
+[DUCKDB]
 
-# Influx Host (env: INFLUXDB3_HOST_URL)
-# Default: "http://localhost:8181"
-# HOST_URL = "http://localhost:8181"
-
-# Authorization token (env: INFLUXDB3_AUTH_TOKEN)
-# Default: None
-# AUTH_TOKEN = "your-token"
-
-# Database name (env: INFLUXDB3_DATABASE_NAME)
-# Default: "nmea_database"
-# DATABASE_NAME = "nmea_database"
+# Path to the DuckDB database (env: DUCKDB_DATABASE_PATH)
+# Default: "nmea_database.db"
+# DATABASE_PATH = "nmea_database.db"
 
 # Batch sizes for writes to the database
-# Default: 100
-# BATCH_SIZE = 100
+# Default: 600
+# BATCH_SIZE = 600
 
 # Max batch interval before writing to the database in seconds
-# Default: 10
-# BATCH_INTERVAL = 10
+# Default: 60
+# BATCH_INTERVAL = 60

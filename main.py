@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import datetime
 import errno
 import json
 import logging
@@ -39,10 +40,7 @@ import os
 import socket
 import sys
 import tomllib
-try:
-    from influxdb_client_3 import InfluxDBClient3
-except ImportError:
-    InfluxDBClient3 = None
+import duckdb
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -109,35 +107,11 @@ async def main():
             mqtt_queue = asyncio.Queue(maxsize=100)
             subscribers.append(mqtt_queue)
 
-            # InfluxDB subscriber
-            influx_config = config.get("INFLUXDB")
-            influx_client = None
-            if influx_config is not None:
-                if InfluxDBClient3:
-                    auth_token = (os.getenv('INFLUXDB3_AUTH_TOKEN')
-                             or influx_config.get("AUTH_TOKEN"))
-                    if not auth_token:
-                        log.error("InfluxDB V3 authentication token not found.")
-                        sys.exit("InfluxDB V3 authentication token not found. Please set "
-                                 "AUTH_TOKEN in the configuration file, or INFLUXDB_AUTH_TOKEN "
-                                 "in the environment.")
-                    host_url = (os.getenv('INFLUXDB3_HOST_URL')
-                            or influx_config.get("HOST_URL", "http://localhost:8181"))
-                    database_name = (os.getenv('INFLUXDB3_DATABASE_NAME')
-                                or influx_config.get("DATABASE_NAME", "nmea_database"))
-                    influx_queue = asyncio.Queue(maxsize=100)
-                    subscribers.append(influx_queue)
-                    try:
-                        influx_client = InfluxDBClient3(
-                            host=host_url,
-                            token=auth_token,
-                            database=database_name
-                        )
-                    except Exception as e:
-                        log.error(f"Failed to initialize InfluxDB client: {e}")
-                        influx_client = None
-                else:
-                    log.error("InfluxDB V3 client library not found. Please install influxdb3-python.")
+            # DuckDB subscriber
+            duckdb_database_path = (os.getenv('DUCKDB_DATABASE_PATH')
+                                    or config['DUCKDB'].get("DATABASE_PATH", "nmea_database.db"))
+            duckdb_queue = asyncio.Queue(maxsize=1000)
+            subscribers.append(duckdb_queue)
 
             # Set up the MQTT connection
             async with managed_connection() as mqtt_client:
@@ -159,17 +133,12 @@ async def main():
                 mqtt_client.connect(mqtt_config.get("MQTT_BROKER", "localhost"),
                                     mqtt_config.get("MQTT_PORT", 1883), 60)
 
-                # Tasks for MQTT background tasks, publisher, and each NMEA reader
-                tasks = [
-                    asyncio.create_task(mqtt_misc_loop(mqtt_client)),
-                    asyncio.create_task(mqtt_publisher_task(mqtt_client, mqtt_queue)),
-                    asyncio.create_task(wait_for_disconnect(disconnect_event))
-                ]
-                if influx_client:
-                    tasks.append(asyncio.create_task(
-                        influxdb_publisher_task(influx_client,
-                                                database_name,
-                                                influx_queue)))
+                tasks = [asyncio.create_task(mqtt_misc_loop(mqtt_client)),
+                         asyncio.create_task(mqtt_publisher_task(mqtt_client, mqtt_queue)),
+                         asyncio.create_task(wait_for_disconnect(disconnect_event)),
+                         asyncio.create_task(duckdb_publisher_task(duckdb_database_path,
+                                                                   duckdb_queue))]
+
                 nmea_options = config.get("NMEA_OPTIONS", {})
                 for host_url, port in nmea_options.get("NMEA_SOCKETS", []):
                     tasks.append(asyncio.create_task(
@@ -235,50 +204,128 @@ async def mqtt_publisher_task(mqtt_client, queue):
                 last_published[address_field] = parsed_nmea["timestamp"]
 
 
-def to_line_protocol(address_field, parsed_nmea):
-    """Convert parsed NMEA data into InfluxDB line protocol format."""
-    blacklist = {"sentence_type", "timeUTC", "gll_mode", "timestamp"}
-    talker = address_field[0:2]
-    sentence_type = address_field[2:]
+TABLE_SCHEMAS = {
+    "DPT": """CREATE TABLE IF NOT EXISTS DPT (
+        timestamp TIMESTAMP_MS,
+        talker VARCHAR,
+        depth_below_transducer_meters DOUBLE,
+        transducer_depth_meters DOUBLE,
+        water_depth_meters DOUBLE
+    );""",
+    "GLL": """CREATE TABLE IF NOT EXISTS GLL (
+        timestamp TIMESTAMP_MS,
+        talker VARCHAR,
+        latitude DOUBLE,
+        longitude DOUBLE
+    );""",
+    "HDT": """CREATE TABLE IF NOT EXISTS HDT (
+        timestamp TIMESTAMP_MS,
+        talker VARCHAR,
+        hdg_true DOUBLE
+    );""",
+    "MDA": """CREATE TABLE IF NOT EXISTS MDA (
+        timestamp TIMESTAMP_MS,
+        talker VARCHAR,
+        pressure_millibars DOUBLE,
+        temperature_air_celsius DOUBLE,
+        temperature_water_celsius DOUBLE,
+        humidity_relative DOUBLE,
+        dew_point_celsius DOUBLE,
+        twd_true DOUBLE,
+        twd_magnetic DOUBLE,
+        tws_knots DOUBLE
+    );""",
+    "MWV": """CREATE TABLE IF NOT EXISTS MWV (
+        timestamp TIMESTAMP_MS,
+        talker VARCHAR,
+        awa DOUBLE,
+        aws_knots DOUBLE
+    );""",
+    "ROT": """CREATE TABLE IF NOT EXISTS ROT (
+        timestamp TIMESTAMP_MS,
+        talker VARCHAR,
+        rate_of_turn DOUBLE
+    );""",
+    "RSA": """CREATE TABLE IF NOT EXISTS RSA (
+        timestamp TIMESTAMP_MS,
+        talker VARCHAR,
+        rudder_angle DOUBLE
+    );""",
+    "VTG": """CREATE TABLE IF NOT EXISTS VTG (
+        timestamp TIMESTAMP_MS,
+        talker VARCHAR,
+        cog_true DOUBLE,
+        cog_magnetic DOUBLE,
+        sog_knots DOUBLE
+    );"""
+}
 
-    # Prepare tags and fields
-    mmsi = config.get("MMSI")
-    tag_str = f"{sentence_type},mmsi={mmsi},talker={talker}"
 
-    field_list = []
-    for k, v in parsed_nmea.items():
-        if k in blacklist or v is None:
-            continue
-        if isinstance(v, str):
-            # Basic string escaping for line protocol
-            v_escaped = v.replace('"', '\\"')
-            v_str = f'"{v_escaped}"'
-        elif isinstance(v, int):
-            v_str = f"{v}i"
-        else:
-            v_str = str(v)
-        field_list.append(f"{k}={v_str}")
-    field_str = ",".join(field_list)
+def map_fields(sentence_type, talker, parsed_nmea):
+    timestamp_ms = parsed_nmea["timestamp"]
+    timestamp = datetime.datetime.fromtimestamp(timestamp_ms / 1000.0, tz=datetime.timezone.utc).replace(tzinfo=None)
+    if sentence_type == "DPT":
+        return (timestamp, talker, parsed_nmea.get("depth_below_transducer_meters"), parsed_nmea.get("transducer_depth_meters"), parsed_nmea.get("water_depth_meters"))
+    elif sentence_type == "GLL":
+        return (timestamp, talker, parsed_nmea.get("latitude"), parsed_nmea.get("longitude"))
+    elif sentence_type == "HDT":
+        return (timestamp, talker, parsed_nmea.get("hdg_true"))
+    elif sentence_type == "MDA":
+        return (timestamp, talker, parsed_nmea.get("pressure_millibars"), parsed_nmea.get("temperature_air_celsius"), parsed_nmea.get("temperature_water_celsius"), parsed_nmea.get("humidity_relative"), parsed_nmea.get("dew_point_celsius"), parsed_nmea.get("twd_true"), parsed_nmea.get("twd_magnetic"), parsed_nmea.get("tws_knots"))
+    elif sentence_type == "MWV":
+        return (timestamp, talker, parsed_nmea.get("awa"), parsed_nmea.get("aws_knots"))
+    elif sentence_type == "ROT":
+        return (timestamp, talker, parsed_nmea.get("rate_of_turn"))
+    elif sentence_type == "RSA":
+        return (timestamp, talker, parsed_nmea.get("rudder_angle"))
+    elif sentence_type == "VTG":
+        return (timestamp, talker, parsed_nmea.get("cog_true"), parsed_nmea.get("cog_magnetic"), parsed_nmea.get("sog_knots"))
+    return None
 
-    # Construct line protocol
-    return f"{tag_str} {field_str} {parsed_nmea['timestamp']}"
+
+def write_batch(conn, batch):
+    grouped = defaultdict(list)
+    for address_field, parsed_nmea in batch:
+        talker = address_field[0:2]
+        sentence_type = address_field[2:]
+        if sentence_type in TABLE_SCHEMAS:
+            row = map_fields(sentence_type, talker, parsed_nmea)
+            if row:
+                grouped[sentence_type].append(row)
+                
+    if not grouped:
+        return
+
+    conn.execute("BEGIN TRANSACTION")
+    try:
+        for table_name, rows in grouped.items():
+            placeholders = ", ".join(["?"] * len(rows[0]))
+            conn.executemany(f"INSERT INTO {table_name} VALUES ({placeholders})", rows)
+        conn.execute("COMMIT")
+    except Exception as e:
+        conn.execute("ROLLBACK")
+        log.error(f"Error inserting batch into DuckDB: {e}")
 
 
-async def influxdb_publisher_task(client, database, queue):
-    """Task that consumes from the queue and publishes to InfluxDB V3 using batching."""
-    # Fail hard if there is no INFLUXDB configuration because we should not have gotten here.
-    influx_config = config["INFLUXDB"]
-    batch_size = influx_config.get("BATCH_SIZE", 100)
-    batch_interval = influx_config.get("BATCH_INTERVAL", 10)
-    log.info(f"Using batch size {batch_size} and batch interval {batch_interval} seconds.")
+async def duckdb_publisher_task(database_path, queue):
+    """Task that consumes from the queue and publishes to DuckDB."""
+    # Establish connection
+    conn = await asyncio.to_thread(duckdb.connect, database_path)
+    
+    # Initialize schemas
+    for schema_sql in TABLE_SCHEMAS.values():
+        await asyncio.to_thread(conn.execute, schema_sql)
+        
+    duckdb_config = config.get("DUCKDB", {})
+    batch_size = duckdb_config.get("BATCH_SIZE", 600)
+    batch_interval = duckdb_config.get("BATCH_INTERVAL", 60)
+    log.info(f"Using DuckDB batch size {batch_size} and batch interval {batch_interval} seconds.")
 
     while True:
         batch = []
-        # Wait for the first item without a timeout
         item = await queue.get()
         batch.append(item)
 
-        # Try to collect more items up to batch_size or until batch_interval expires
         start_time = asyncio.get_event_loop().time()
         while len(batch) < batch_size:
             elapsed = asyncio.get_event_loop().time() - start_time
@@ -291,24 +338,11 @@ async def influxdb_publisher_task(client, database, queue):
             except asyncio.TimeoutError:
                 break
 
-        # Format the batch into line protocol
-        records = [to_line_protocol(address_field, parsed_nmea)
-                   for address_field, parsed_nmea in batch]
-
-        try:
-            await asyncio.to_thread(
-                client.write,
-                record=records,
-                database=database,
-                write_precision="ms"
-            )
-            if config.get("DEBUG", 0) >= 1:
-                log.debug(f"Published batch of {len(batch)} records to InfluxDB.")
-        except Exception as e:
-            log.error(f"Error in InfluxDB publisher task: {e}")
-        finally:
-            for _ in range(len(batch)):
-                queue.task_done()
+        # Group and insert batch in a single thread-safe transaction
+        await asyncio.to_thread(write_batch, conn, batch)
+        
+        for _ in range(len(batch)):
+            queue.task_done()
 
 
 async def nmea_reader_task(host, port, subscribers, last_published):

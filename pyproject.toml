@@ -19,7 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "paho-mqtt",
-    "influxdb3-python",
+    "duckdb",
 ]
 
 [project.optional-dependencies]

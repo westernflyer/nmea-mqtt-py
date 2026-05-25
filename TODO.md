@@ -9,3 +9,4 @@ Missing sentences (none of them are needed):
   - VWH
   - ZDA
 
+If the program has to restart, how is the DuckDB connection closed?

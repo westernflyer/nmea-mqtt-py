@@ -1,7 +1,7 @@
 ## nmea-mqtt-py
 
 Read NMEA 0183 sentences from one or more sockets, parse them, then publish to
-MQTT as JSON and (optionally) store to an InfluxDB database.
+MQTT as JSON and (optionally) store to a DuckDB database.
 
 ## Socket input
 
@@ -41,39 +41,90 @@ There is a hack in the code for the FT602. If an address field of `WIMWV` is
 received from port 60002, it will be changed to `FTMWV` to disambiguate it from
 sentences being sent by the Airmar 200WX.
 
-## InfluxDB output
+## DuckDB output
 
-If the `[INFLUXDB]` section is present in `config.toml`, parsed NMEA data will also
-be written to an InfluxDB V3 database.
+If the `[DUCKDB]` section is present in `config.toml`, parsed NMEA data will also
+be written to a DuckDB database.
 
 Example configuration:
 
 ```toml
-[INFLUXDB]
-HOST = "https://us-east-1-1.aws.cloud2.influxdata.com"
-TOKEN = "your-token"
-DATABASE = "your-database"
+[DUCKDB]
+DATABASE_PATH = "nmea_database.db"
+BATCH_SIZE = 100
+BATCH_INTERVAL = 10
 ```
 
-The data is written using the InfluxDB line protocol. The sentence type (e.g.,
-`MWV`) is used as the table name. The MMSI number and NMEA talker are used as
-tags. Most other fields are written as InfluxDB fields, with the exception of
-`sentence_type`, `timeUTC`, and `gll_mode`, which are not written at all.
+The data is grouped by sentence type and written using parameterized batch insertions. The database contains eight distinct tables, one for each supported NMEA sentence type (`DPT`, `GLL`, `HDT`, `MDA`, `MWV`, `ROT`, `RSA`, `VTG`). Naive UTC timestamps are stored under the `timestamp` column.
 
-Here is an example of the data written to InfluxDB, shown in line protocol:
+Here are the SQL schemas used for each of the eight tables:
 
-```
-MWV,mmsi=368323170,talker=FT awa=236.0,aws_knots=2.0 1778933826541
-ROT,mmsi=368323170,talker=TI rate_of_turn=0.02 1778933827541
-MWV,mmsi=368323170,talker=WI awa=238.0,aws_knots=2.0 1778933828540
-GLL,mmsi=368323170,talker=GP latitude=44.62395333333333,longitude=-124.051575 1778933829541
-MWV,mmsi=368323170,talker=FT awa=245.0,aws_knots=2.0 1778933830540
-HDT,mmsi=368323170,talker=HE hdg_true=93.1 1778933831541
+```sql
+CREATE TABLE IF NOT EXISTS DPT (
+    timestamp TIMESTAMP_MS,
+    talker VARCHAR,
+    depth_below_transducer_meters DOUBLE,
+    transducer_depth_meters DOUBLE,
+    water_depth_meters DOUBLE
+);
+
+CREATE TABLE IF NOT EXISTS GLL (
+    timestamp TIMESTAMP_MS,
+    talker VARCHAR,
+    latitude DOUBLE,
+    longitude DOUBLE
+);
+
+CREATE TABLE IF NOT EXISTS HDT (
+    timestamp TIMESTAMP_MS,
+    talker VARCHAR,
+    hdg_true DOUBLE
+);
+
+CREATE TABLE IF NOT EXISTS MDA (
+    timestamp TIMESTAMP_MS,
+    talker VARCHAR,
+    pressure_millibars DOUBLE,
+    temperature_air_celsius DOUBLE,
+    temperature_water_celsius DOUBLE,
+    humidity_relative DOUBLE,
+    dew_point_celsius DOUBLE,
+    twd_true DOUBLE,
+    twd_magnetic DOUBLE,
+    tws_knots DOUBLE
+);
+
+CREATE TABLE IF NOT EXISTS MWV (
+    timestamp TIMESTAMP_MS,
+    talker VARCHAR,
+    awa DOUBLE,
+    aws_knots DOUBLE
+);
+
+CREATE TABLE IF NOT EXISTS ROT (
+    timestamp TIMESTAMP_MS,
+    talker VARCHAR,
+    rate_of_turn DOUBLE
+);
+
+CREATE TABLE IF NOT EXISTS RSA (
+    timestamp TIMESTAMP_MS,
+    talker VARCHAR,
+    rudder_angle DOUBLE
+);
+
+CREATE TABLE IF NOT EXISTS VTG (
+    timestamp TIMESTAMP_MS,
+    talker VARCHAR,
+    cog_true DOUBLE,
+    cog_magnetic DOUBLE,
+    sog_knots DOUBLE
+);
 ```
 
 ## Requirements
 
-- InfluxDB V3. You should have its "admin" token available.
+- DuckDB.
 - An MQTT broker.
 - Python v3.12 or greater. Earlier versions cannot be used due to how
   parameter types have been specified, and how `asyncio` raises `Timeout` 
@@ -119,14 +170,14 @@ but make sure you use it consistently in what follows.
    ```
 
 5. Install a defaults environment file, `/etc/default/nmea-mqtt`, with the
-   following contents. Substitute your own values for the `INFLUXDB3_AUTH_TOKEN`
+   following contents. Substitute your own values for the `DUCKDB_DATABASE_PATH`
    and `DEBUG` entries.
 
     ```
     # Environment variables for the nmea-mqtt service
 
-    # For InfluxDB:
-    INFLUXDB3_AUTH_TOKEN=YOUR-ADMIN-TOKEN-HERE
+    # For DuckDB (optional override):
+    # DUCKDB_DATABASE_PATH=nmea_database.db
 
     # Set debugging:
     DEBUG=1
