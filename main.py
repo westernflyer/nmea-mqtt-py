@@ -4,14 +4,14 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE.txt.txt file in the root directory of this source tree.
 #
-"""Read NMEA sentences from multiple sockets, parse, then publish to MQTT and InfluxDB.
+"""Read NMEA sentences from multiple sockets, parse, then publish to MQTT and a DuckDB database.
 
-Data Flow Summary
+Summary of data flow:
 1. Read: gen_nmea pulls raw bytes from multiple TCP sockets.
 2. Parse: parse_nmea.parse() validates the checksum and converts the raw string into a
    Python dictionary.
-3. Queue: Validated data is pushed into two asyncio.Queues, one for InfluxDB and one for MQTT.
-4a. Save to InfluxDB. influxdb_publisher_task pulls from the queue, then saves to InfluxDB.
+3. Queue: Validated data is pushed into two asyncio.Queues, one for DuckDB and one for MQTT.
+4a. Save to DuckDB: duckdb_publisher_task pulls from the queue, then saves to DuckDB.
 4b. Publish to MQTT: mqtt_publisher_task pulls from the queue and checks whether enough time has
     elapsed. If so, it sends the JSON-encoded payload to the MQTT broker using a topic structure
     like nmea/MMSI/SENTENCE_TYPE.
@@ -40,11 +40,11 @@ import os
 import socket
 import sys
 import tomllib
-import duckdb
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+import duckdb
 import paho.mqtt.client as mqtt
 
 import parse_nmea
@@ -108,8 +108,7 @@ async def main():
             subscribers.append(mqtt_queue)
 
             # DuckDB subscriber
-            duckdb_database_path = (os.getenv('DUCKDB_DATABASE_PATH')
-                                    or config['DUCKDB'].get("DATABASE_PATH", "nmea_database.db"))
+            duckdb_database_path = config['DUCKDB'].get("DATABASE_PATH", "nmea_database.db")
             duckdb_queue = asyncio.Queue(maxsize=1000)
             subscribers.append(duckdb_queue)
 
@@ -173,7 +172,7 @@ async def main():
             await warn_print_sleep(f"MQTT broker or network error: {e}")
         except Exception as e:
             log.exception("Unexpected error in main loop")
-            await warn_print_sleep(f"Unexpected error: {e}")
+            await warn_print_sleep(f"Unexpected error in main loop: {e}")
 
 
 async def wait_for_disconnect(disconnect_event):
@@ -302,6 +301,7 @@ def write_batch(conn, batch):
             placeholders = ", ".join(["?"] * len(rows[0]))
             conn.executemany(f"INSERT INTO {table_name} VALUES ({placeholders})", rows)
         conn.execute("COMMIT")
+        log.debug(f"Inserted {len(batch)} rows into database.")
     except Exception as e:
         conn.execute("ROLLBACK")
         log.error(f"Error inserting batch into DuckDB: {e}")
@@ -309,40 +309,45 @@ def write_batch(conn, batch):
 
 async def duckdb_publisher_task(database_path, queue):
     """Task that consumes from the queue and publishes to DuckDB."""
-    # Establish connection
-    conn = await asyncio.to_thread(duckdb.connect, database_path)
-    
-    # Initialize schemas
-    for schema_sql in TABLE_SCHEMAS.values():
-        await asyncio.to_thread(conn.execute, schema_sql)
-        
-    duckdb_config = config.get("DUCKDB", {})
-    batch_size = duckdb_config.get("BATCH_SIZE", 600)
-    batch_interval = duckdb_config.get("BATCH_INTERVAL", 60)
-    log.info(f"Using DuckDB batch size {batch_size} and batch interval {batch_interval} seconds.")
+    conn = None
+    try:
+        # Establish connection
+        conn = await asyncio.to_thread(duckdb.connect, database_path)
 
-    while True:
-        batch = []
-        item = await queue.get()
-        batch.append(item)
+        # Initialize schemas
+        for schema_sql in TABLE_SCHEMAS.values():
+            await asyncio.to_thread(conn.execute, schema_sql)
 
-        start_time = asyncio.get_event_loop().time()
-        while len(batch) < batch_size:
-            elapsed = asyncio.get_event_loop().time() - start_time
-            remaining = batch_interval - elapsed
-            if remaining <= 0:
-                break
-            try:
-                item = await asyncio.wait_for(queue.get(), timeout=remaining)
-                batch.append(item)
-            except asyncio.TimeoutError:
-                break
+        batch_size = config["DUCKDB"].get("BATCH_SIZE", 600)
+        batch_interval = config["DUCKDB"].get("BATCH_INTERVAL", 60)
+        log.info(f"Using DuckDB batch size {batch_size} and batch interval {batch_interval} seconds.")
 
-        # Group and insert batch in a single thread-safe transaction
-        await asyncio.to_thread(write_batch, conn, batch)
-        
-        for _ in range(len(batch)):
-            queue.task_done()
+        while True:
+            batch = []
+            item = await queue.get()
+            batch.append(item)
+
+            start_time = asyncio.get_event_loop().time()
+            while len(batch) < batch_size:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                remaining = batch_interval - elapsed
+                if remaining <= 0:
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=remaining)
+                    batch.append(item)
+                except asyncio.TimeoutError:
+                    break
+
+            # Group and insert batch in a single thread-safe transaction
+            await asyncio.to_thread(write_batch, conn, batch)
+
+            for _ in range(len(batch)):
+                queue.task_done()
+    finally:
+        if conn is not None:
+            log.info("Closing DuckDB connection.")
+            await asyncio.to_thread(conn.close)
 
 
 async def nmea_reader_task(host, port, subscribers, last_published):
@@ -383,14 +388,21 @@ async def nmea_reader_task(host, port, subscribers, last_published):
                     if address_field in publish_intervals:
                         for queue in subscribers:
                             await queue.put((address_field, parsed_nmea))
-        except (ConnectionResetError, ConnectionRefusedError, asyncio.TimeoutError,
-                socket.gaierror, OSError) as e:
-            if isinstance(e, OSError) and e.errno not in [errno.ENETUNREACH, errno.EHOSTUNREACH]:
-                log.warning(f"Unexpected OS error on {host}:{port}: {e}")
-            await warn_print_sleep(f"Error reading from {host}:{port}: {e}")
+        except (ConnectionResetError, ConnectionRefusedError) as e:
+            log.warning(f"Connection error on {host}:{port} ({e})")
+            await warn_print_sleep(f"Connection error on {host}:{port} ({e})")
+        except asyncio.TimeoutError as e:
+            log.warning(f"Timeout reading error from {host}:{port} ({e})")
+            await warn_print_sleep(f"Timeout reading error from {host}:{port} ({e})")
+        except socket.gaierror as e:
+            log.warning(f"DNS error on {host}:{port} ({e})")
+            await warn_print_sleep(f"DNS error on {host}:{port} ({e})")
+        except OSError as e:
+            log.warning(f"Unexpected OS error on {host}:{port} ({e})")
+            await warn_print_sleep(f"Unexpected OS error on {host}:{port} ({e})")
         except Exception as e:
-            log.exception(f"Unexpected error in reader task for {host}:{port}")
-            await warn_print_sleep(f"Unexpected error on {host}:{port}: {e}")
+            log.exception(f"Unexpected error in reader task for {host}:{port} ({e})")
+            await warn_print_sleep(f"Unexpected error in reader task for {host}:{port} ({e})")
 
 
 def on_connect(client, userdata, flags, reason_code, properties):

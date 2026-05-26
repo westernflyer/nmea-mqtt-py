@@ -41,21 +41,23 @@ There is a hack in the code for the FT602. If an address field of `WIMWV` is
 received from port 60002, it will be changed to `FTMWV` to disambiguate it from
 sentences being sent by the Airmar 200WX.
 
-## DuckDB output
+## DuckDB database
 
-If the `[DUCKDB]` section is present in `config.toml`, parsed NMEA data will also
-be written to a DuckDB database.
+Parsed NMEA data is also written to a DuckDB database.
 
 Example configuration:
 
 ```toml
 [DUCKDB]
 DATABASE_PATH = "nmea_database.db"
-BATCH_SIZE = 100
-BATCH_INTERVAL = 10
+BATCH_SIZE = 600
+BATCH_INTERVAL = 60
 ```
 
-The data is grouped by sentence type and written using parameterized batch insertions. The database contains eight distinct tables, one for each supported NMEA sentence type (`DPT`, `GLL`, `HDT`, `MDA`, `MWV`, `ROT`, `RSA`, `VTG`). Naive UTC timestamps are stored under the `timestamp` column.
+The data is grouped by sentence type and written using parameterized batch
+insertions. The database contains eight distinct tables, one for each supported
+NMEA sentence type (`DPT`, `GLL`, `HDT`, `MDA`, `MWV`, `ROT`, `RSA`, `VTG`).
+Naive UTC timestamps are stored under the `timestamp` column.
 
 Here are the SQL schemas used for each of the eight tables:
 
@@ -169,24 +171,10 @@ but make sure you use it consistently in what follows.
    nano config.toml
    ```
 
-5. Install a defaults environment file, `/etc/default/nmea-mqtt`, with the
-   following contents. Substitute your own values for the `DUCKDB_DATABASE_PATH`
-   and `DEBUG` entries.
-
-    ```
-    # Environment variables for the nmea-mqtt service
-
-    # For DuckDB (optional override):
-    # DUCKDB_DATABASE_PATH=nmea_database.db
-
-    # Set debugging:
-    DEBUG=1
-    ```
-   
-6. Time to install a systemd service file. Log into an account that has root
-privileges. Copy the provided systemd service file into place, then edit it
-appropriately. In particular, make sure the entries for `WorkingDirectory` and
-`ExecStart` reflect your choices.
+5. Time to install a systemd service file. Log into an account that has root
+   privileges. Copy the provided systemd service file into place, then edit it
+   appropriately. In particular, make sure the entries for `WorkingDirectory` and
+   `ExecStart` reflect your choices.
 
    ```
    cd ~nmea/git/nmea-mqtt-py/systemd
@@ -194,7 +182,7 @@ appropriately. In particular, make sure the entries for `WorkingDirectory` and
    sudo nano /etc/systemd/system/nmea-mqtt.service
    ```
    
-7. Reload the systemd manager to reflect your changes, then start the nmea-mqtt
+6. Reload the systemd manager to reflect your changes, then start the nmea-mqtt
    daemon. Finally, enable the daemon so it will automatically start when the
    system boots.
 
@@ -206,6 +194,6 @@ appropriately. In particular, make sure the entries for `WorkingDirectory` and
    
 ## Copyright
 
-Copyright (c) 2025 Tom Keffer <tkeffer@gmail.com>
+Copyright (c) 2025-present Tom Keffer <tkeffer@gmail.com>
 
 See the file LICENSE.txt for your rights.

@@ -1,3 +1,6 @@
+# 1.3.0
+Switch from InfluxDB to DuckDB. InfluxDB had too many limitations.
+
 # 1.2.0
 Writes to the InfluxDB database are now batched in order to improve performance.
 
