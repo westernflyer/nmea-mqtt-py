@@ -336,6 +336,8 @@ async def duckdb_publisher_task(database_path, queue):
                 if remaining <= 0:
                     break
                 try:
+                    # In order to honor the batch interval, we need to process the batch
+                    # eventually, so set a timeout for the queue get operation.
                     item = await asyncio.wait_for(queue.get(), timeout=remaining)
                     batch.append(item)
                 except asyncio.TimeoutError:

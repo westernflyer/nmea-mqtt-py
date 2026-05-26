@@ -9,4 +9,6 @@ Missing sentences (none of them are needed):
   - VWH
   - ZDA
 
-If the program has to restart, how is the DuckDB connection closed?
+Use the DuckDB Quack protocol to allow concurrent access to the database.
+This way, users can monitor the database (perhaps with Grafana), while writing
+is going on.
