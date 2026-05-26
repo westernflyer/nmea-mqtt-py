@@ -293,6 +293,7 @@ def write_batch(conn, batch):
             if row:
                 grouped[sentence_type].append(row)
                 
+    # Don't do anything if there was nothing in the batch:
     if not grouped:
         return
 
@@ -335,7 +336,7 @@ async def duckdb_publisher_task(database_path, queue):
                 if remaining <= 0:
                     break
                 try:
-                    item = await asyncio.wait_for(queue.get())
+                    item = await asyncio.wait_for(queue.get(), timeout=remaining)
                     batch.append(item)
                 except asyncio.TimeoutError:
                     break
