@@ -261,6 +261,7 @@ TABLE_SCHEMAS = {
 
 
 def map_fields(sentence_type, talker, parsed_nmea):
+# TODO: read the ordering from the database schema
     timestamp_ms = parsed_nmea["timestamp"]
     timestamp = datetime.datetime.fromtimestamp(timestamp_ms / 1000.0, tz=datetime.timezone.utc).replace(tzinfo=None)
     if sentence_type == "DPT":
@@ -324,9 +325,9 @@ async def duckdb_publisher_task(database_path, queue):
 
         while True:
             batch = []
-            item = await queue.get()
-            batch.append(item)
 
+            # Get items from the queue until we reach the batch size or batch interval, whichever
+            # happens first
             start_time = asyncio.get_event_loop().time()
             while len(batch) < batch_size:
                 elapsed = asyncio.get_event_loop().time() - start_time
@@ -334,7 +335,7 @@ async def duckdb_publisher_task(database_path, queue):
                 if remaining <= 0:
                     break
                 try:
-                    item = await asyncio.wait_for(queue.get(), timeout=remaining)
+                    item = await asyncio.wait_for(queue.get())
                     batch.append(item)
                 except asyncio.TimeoutError:
                     break
