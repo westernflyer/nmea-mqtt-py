@@ -13,6 +13,7 @@ Type=simple
 WorkingDirectory=/home/nmea/git/nmea-mqtt-py
 # This relies on the working directory being set correctly.
 ExecStart= /home/nmea/git/nmea-mqtt-py/.venv/bin/python3 -m main
+Restart=on-failure
 StandardOutput=null
 StandardError=journal+console
 User=nmea
