@@ -1,9 +1,11 @@
 import asyncio
-import os
-import pytest
+
 import duckdb
-import main
+import pytest
+
 import duckdb_services
+import main
+
 
 @pytest.mark.asyncio
 async def test_schema_creation(tmp_path):

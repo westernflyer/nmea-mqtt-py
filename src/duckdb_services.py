@@ -11,6 +11,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 
 import duckdb
+from duckdb import DuckDBPyConnection
 
 from service_utils import RETRYABLE_ERRORS, warn_print_sleep
 
@@ -19,106 +20,69 @@ log = logging.getLogger("nmea-mqtt.duckdb")
 TABLE_SCHEMAS = {
     "DPT": """CREATE TABLE IF NOT EXISTS DPT
               (
-                  timestamp
-                  TIMESTAMP_MS,
-                  talker
-                  VARCHAR,
-                  depth_below_transducer_meters
-                  DOUBLE,
-                  transducer_depth_meters
-                  DOUBLE,
-                  water_depth_meters
-                  DOUBLE
+                  timestamp                     TIMESTAMP_MS,
+                  talker                        VARCHAR,
+                  depth_below_transducer_meters DOUBLE,
+                  transducer_depth_meters       DOUBLE,
+                  water_depth_meters            DOUBLE
               );""",
     "GLL": """CREATE TABLE IF NOT EXISTS GLL
               (
-                  timestamp
-                  TIMESTAMP_MS,
-                  talker
-                  VARCHAR,
-                  latitude
-                  DOUBLE,
-                  longitude
-                  DOUBLE
+                  timestamp TIMESTAMP_MS,
+                  talker    VARCHAR,
+                  latitude  DOUBLE,
+                  longitude DOUBLE
               );""",
     "HDT": """CREATE TABLE IF NOT EXISTS HDT
               (
-                  timestamp
-                  TIMESTAMP_MS,
-                  talker
-                  VARCHAR,
-                  hdg_true
-                  DOUBLE
+                  timestamp TIMESTAMP_MS,
+                  talker    VARCHAR,
+                  hdg_true  DOUBLE
               );""",
     "MDA": """CREATE TABLE IF NOT EXISTS MDA
               (
-                  timestamp
-                  TIMESTAMP_MS,
-                  talker
-                  VARCHAR,
-                  pressure_millibars
-                  DOUBLE,
-                  temperature_air_celsius
-                  DOUBLE,
-                  temperature_water_celsius
-                  DOUBLE,
-                  humidity_relative
-                  DOUBLE,
-                  dew_point_celsius
-                  DOUBLE,
-                  twd_true
-                  DOUBLE,
-                  twd_magnetic
-                  DOUBLE,
-                  tws_knots
-                  DOUBLE
+                  timestamp                 TIMESTAMP_MS,
+                  talker                    VARCHAR,
+                  pressure_millibars        DOUBLE,
+                  temperature_air_celsius   DOUBLE,
+                  temperature_water_celsius DOUBLE,
+                  humidity_relative         DOUBLE,
+                  dew_point_celsius         DOUBLE,
+                  twd_true                  DOUBLE,
+                  twd_magnetic              DOUBLE,
+                  tws_knots                 DOUBLE
               );""",
     "MWV": """CREATE TABLE IF NOT EXISTS MWV
               (
-                  timestamp
-                  TIMESTAMP_MS,
-                  talker
-                  VARCHAR,
-                  awa
-                  DOUBLE,
-                  aws_knots
-                  DOUBLE
+                  timestamp TIMESTAMP_MS,
+                  talker    VARCHAR,
+                  awa       DOUBLE,
+                  aws_knots DOUBLE
               );""",
     "ROT": """CREATE TABLE IF NOT EXISTS ROT
               (
-                  timestamp
-                  TIMESTAMP_MS,
-                  talker
-                  VARCHAR,
-                  rate_of_turn
-                  DOUBLE
+                  timestamp    TIMESTAMP_MS,
+                  talker       VARCHAR,
+                  rate_of_turn DOUBLE
               );""",
     "RSA": """CREATE TABLE IF NOT EXISTS RSA
               (
-                  timestamp
-                  TIMESTAMP_MS,
-                  talker
-                  VARCHAR,
-                  rudder_angle
-                  DOUBLE
+                  timestamp    TIMESTAMP_MS,
+                  talker       VARCHAR,
+                  rudder_angle DOUBLE
               );""",
     "VTG": """CREATE TABLE IF NOT EXISTS VTG
               (
-                  timestamp
-                  TIMESTAMP_MS,
-                  talker
-                  VARCHAR,
-                  cog_true
-                  DOUBLE,
-                  cog_magnetic
-                  DOUBLE,
-                  sog_knots
-                  DOUBLE
+                  timestamp    TIMESTAMP_MS,
+                  talker       VARCHAR,
+                  cog_true     DOUBLE,
+                  cog_magnetic DOUBLE,
+                  sog_knots    DOUBLE
               );"""
 }
 
 
-def map_fields(sentence_type, talker, parsed_nmea):
+def map_fields(sentence_type: str, talker, parsed_nmea:dict[str, float | str | None]):
     # TODO: read the ordering from the database schema
     timestamp_ms = parsed_nmea["timestamp"]
     timestamp = datetime.datetime.fromtimestamp(timestamp_ms / 1000.0,
@@ -149,7 +113,25 @@ def map_fields(sentence_type, talker, parsed_nmea):
     return None
 
 
-def write_batch(conn, batch):
+def write_batch(conn: DuckDBPyConnection, batch: list[tuple[str, dict]]) -> None:
+    """
+    Writes a batch of NMEA sentences to a DuckDB database.
+
+    This function processes a list of NMEA sentences and organizes them into
+    appropriate database table formats based on their sentence types. The
+    data is then inserted into the corresponding tables in a DuckDB database
+    using a single transaction.
+
+    Parameters:
+        conn (DuckDBPyConnection): The DuckDB connection object used for database
+            operations.
+        batch (list[tuple[str, dict]]): A list of tuples where each tuple consists
+            of an NMEA address field (str) and its parsed data (dict).
+
+    Raises:
+        Exception: If any error occurs during the insertion process, the changes
+            are rolled back and the exception is re-raised.
+    """
     grouped = defaultdict(list)
     for address_field, parsed_nmea in batch:
         talker = address_field[0:2]
@@ -176,7 +158,9 @@ def write_batch(conn, batch):
         raise
 
 
-async def duckdb_publisher_task(db_conn, queue: asyncio.Queue, config: dict):
+async def duckdb_publisher_task(db_conn: DuckDBPyConnection,
+                                queue: asyncio.Queue,
+                                config: dict) -> None:
     """
     Publishes data from an asynchronous queue to a DuckDB database in batches. The batches
     are configurable in size and interval. The function initializes the database schemas on
@@ -184,9 +168,9 @@ async def duckdb_publisher_task(db_conn, queue: asyncio.Queue, config: dict):
 
     Args:
         db_conn: DuckDB database connection.
-        queue (asyncio.Queue): The asyncio queue containing items to be batched and inserted into
+        queue: The asyncio queue containing items to be batched and inserted into
             the database. Each item represents a single row to be processed.
-        config (dict): Configuration dictionary.
+        config: Configuration dictionary.
     """
     # Initialize schemas
     for schema_sql in TABLE_SCHEMAS.values():
@@ -223,8 +207,25 @@ async def duckdb_publisher_task(db_conn, queue: asyncio.Queue, config: dict):
             queue.task_done()
 
 
-async def duckdb_service(queue, config):
-    """Service that manages the DuckDB connection and publisher task."""
+async def duckdb_service(queue: asyncio.Queue, config: dict[str, dict[str, str]]):
+    """
+    Runs the DuckDB service to handle asynchronous database operations and tasks.
+
+    The DuckDB service continuously connects to the specified DuckDB database file 
+    and runs a publisher task to process data using the database. Any retryable 
+    errors or unexpected exceptions are logged and handled appropriately. The 
+    service operates on an asynchronous loop until explicitly cancelled.
+
+    Parameters:
+    queue: The asyncio queue for handling asynchronous task communication.
+    config: A dictionary containing configuration settings, including database path and other
+        service-related parameters.
+
+    Raises:
+    asyncio.CancelledError: Raised when the service loop is cancelled.
+    RETTRYABLE_ERRORS: Raised when encountering retryable errors during execution.
+    Exception: Raised for unexpected errors that occur during service operation.
+    """
     duckdb_database_path = config['DUCKDB'].get("DATABASE_PATH", "nmea_database.db")
     while True:
         try:
