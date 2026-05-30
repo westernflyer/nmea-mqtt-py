@@ -19,9 +19,9 @@ from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
-# Add the parent directory to sys.path so we can import config and parse_nmea
-parent_dir = str(Path(__file__).resolve().parent.parent)
-sys.path.insert(0, parent_dir)
+# Add the src directory to sys.path so we can import parse_nmea
+src_dir = str(Path(__file__).resolve().parent.parent / "src")
+sys.path.insert(0, src_dir)
 
 import parse_nmea
 

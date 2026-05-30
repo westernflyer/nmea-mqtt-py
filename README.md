@@ -1,7 +1,7 @@
 ## nmea-mqtt-py
 
 Read NMEA 0183 sentences from one or more sockets, parse them, then publish to
-MQTT as JSON and (optionally) store to a DuckDB database.
+MQTT as JSON, and store to a DuckDB database.
 
 ## Socket input
 

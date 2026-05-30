@@ -8,7 +8,7 @@ version = "1.4.0"
 authors = [
   { name="Tom Keffer", email="tkeffer@gmail.com" },
 ]
-description = "Read NMEA 0183 sentences from one or more sockets, parse them, then publish to InfluxDB and MQTT"
+description = "Read NMEA 0183 sentences from one or more sockets, parse them, then publish to DuckDB and MQTT"
 readme = "README.md"
 license = { text="MIT" }
 requires-python = ">=3.12"
@@ -35,5 +35,7 @@ test = [
 nmea-mqtt = "main:run"
 
 [tool.setuptools]
-py-modules = ["main"]
-packages = ["parse_nmea", "parse_nmea.decoders"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
