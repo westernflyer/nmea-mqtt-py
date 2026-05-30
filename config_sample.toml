@@ -18,7 +18,7 @@ NMEA_SOCKETS = [
     ["localhost", 10110],
     ["localhost", 10111],
 ]
-NMEA_TIMEOUT = 20
+NMEA_TIMEOUT = 30
 NMEA_RETRY_WAIT = 60
 
 # -----------------------------------------------------------------------------

@@ -68,11 +68,7 @@ async def main():
         with open(args.config, "rb") as f:
             config = tomllib.load(f)
     except FileNotFoundError:
-        print(f"Configuration file {args.config} not found.", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error loading configuration file {args.config}: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(f"Configuration file {args.config} not found.")
 
     if os.getenv("NMEA_MQTT_DEBUG") is not None:
         config["DEBUG"] = int(os.getenv("NMEA_MQTT_DEBUG", 0))
@@ -108,8 +104,11 @@ async def main():
             duckdb_queue = asyncio.Queue(maxsize=1000)
             subscribers.append(duckdb_queue)
 
-            # Set up the MQTT connection
-            async with mqtt_managed_connection() as mqtt_client:
+            # Set up the MQTT and DuckDB connections
+            async with (
+                mqtt_managed_connection() as mqtt_client,
+                duckdb_connection(duckdb_database_path) as duckdb_conn
+            ):
                 # Use an Event to signal when the MQTT connection is dropped
                 disconnect_event = asyncio.Event()
 
@@ -119,7 +118,7 @@ async def main():
                 if mqtt_username and mqtt_password:
                     mqtt_client.username_pw_set(mqtt_username, mqtt_password)
 
-                # Set up callbacks
+                # Set up MQTT callbacks
                 mqtt_client.on_connect = on_connect
                 mqtt_client.on_publish = on_publish
                 mqtt_client.on_disconnect = lambda client, userdata, flags, rc, properties=None: \
@@ -131,8 +130,7 @@ async def main():
                 tasks = [asyncio.create_task(mqtt_misc_loop(mqtt_client)),
                          asyncio.create_task(mqtt_publisher_task(mqtt_client, mqtt_queue)),
                          asyncio.create_task(wait_for_disconnect(disconnect_event)),
-                         asyncio.create_task(duckdb_publisher_task(duckdb_database_path,
-                                                                   duckdb_queue))]
+                         asyncio.create_task(duckdb_publisher_task(duckdb_conn, duckdb_queue))]
 
                 nmea_options = config.get("NMEA_OPTIONS", {})
                 for host_url, port in nmea_options.get("NMEA_SOCKETS", []):
@@ -159,13 +157,13 @@ async def main():
 
         except asyncio.CancelledError:
             break
-        except (ConnectionResetError, ConnectionRefusedError, TimeoutError, socket.gaierror,
+        except (ConnectionResetError,
+                ConnectionRefusedError,
+                TimeoutError,
+                socket.gaierror,
                 OSError) as e:
-            # Retry if it's a network unreachable error. Otherwise, reraise the exception.
-            if isinstance(e, OSError) and e.errno not in [errno.ENETUNREACH, errno.EHOSTUNREACH]:
-                log.exception("Unexpected OS error in main loop")
-                raise
-            await warn_print_sleep(f"MQTT broker or network error: {e}")
+            log.exception(f"Error in main loop: {e}")
+            await warn_print_sleep(f"Error in main loop: {e}")
         except Exception as e:
             log.exception("Unexpected error in main loop")
             await warn_print_sleep(f"Unexpected error in main loop: {e}")
@@ -185,18 +183,13 @@ async def mqtt_publisher_task(mqtt_client, queue):
         address_field, parsed_nmea = await queue.get()
         delta = parsed_nmea["timestamp"] - last_published[address_field]
         if delta >= publish_intervals[address_field]:
-
-            try:
-                mqtt_config = config.get("MQTT_OPTIONS", {})
-                topic = (f"{mqtt_config.get('MQTT_TOPIC_PREFIX', 'nmea')}/"
-                         f"{config['MMSI']}/"
-                         f"{address_field}")
-                publish_nmea(mqtt_client, topic, parsed_nmea)
-            except Exception as e:
-                log.error(f"Error in publisher task: {e}")
-            finally:
-                queue.task_done()
-                last_published[address_field] = parsed_nmea["timestamp"]
+            mqtt_config = config.get("MQTT_OPTIONS", {})
+            topic = (f"{mqtt_config.get('MQTT_TOPIC_PREFIX', 'nmea')}/"
+                     f"{config['MMSI']}/"
+                     f"{address_field}")
+            publish_nmea(mqtt_client, topic, parsed_nmea)
+            queue.task_done()
+            last_published[address_field] = parsed_nmea["timestamp"]
 
 
 TABLE_SCHEMAS = {
@@ -261,21 +254,21 @@ def map_fields(sentence_type, talker, parsed_nmea):
     timestamp_ms = parsed_nmea["timestamp"]
     timestamp = datetime.datetime.fromtimestamp(timestamp_ms / 1000.0, tz=datetime.timezone.utc).replace(tzinfo=None)
     if sentence_type == "DPT":
-        return (timestamp, talker, parsed_nmea.get("depth_below_transducer_meters"), parsed_nmea.get("transducer_depth_meters"), parsed_nmea.get("water_depth_meters"))
+        return timestamp, talker, parsed_nmea.get("depth_below_transducer_meters"), parsed_nmea.get("transducer_depth_meters"), parsed_nmea.get("water_depth_meters")
     elif sentence_type == "GLL":
-        return (timestamp, talker, parsed_nmea.get("latitude"), parsed_nmea.get("longitude"))
+        return timestamp, talker, parsed_nmea.get("latitude"), parsed_nmea.get("longitude")
     elif sentence_type == "HDT":
-        return (timestamp, talker, parsed_nmea.get("hdg_true"))
+        return timestamp, talker, parsed_nmea.get("hdg_true")
     elif sentence_type == "MDA":
-        return (timestamp, talker, parsed_nmea.get("pressure_millibars"), parsed_nmea.get("temperature_air_celsius"), parsed_nmea.get("temperature_water_celsius"), parsed_nmea.get("humidity_relative"), parsed_nmea.get("dew_point_celsius"), parsed_nmea.get("twd_true"), parsed_nmea.get("twd_magnetic"), parsed_nmea.get("tws_knots"))
+        return timestamp, talker, parsed_nmea.get("pressure_millibars"), parsed_nmea.get("temperature_air_celsius"), parsed_nmea.get("temperature_water_celsius"), parsed_nmea.get("humidity_relative"), parsed_nmea.get("dew_point_celsius"), parsed_nmea.get("twd_true"), parsed_nmea.get("twd_magnetic"), parsed_nmea.get("tws_knots")
     elif sentence_type == "MWV":
-        return (timestamp, talker, parsed_nmea.get("awa"), parsed_nmea.get("aws_knots"))
+        return timestamp, talker, parsed_nmea.get("awa"), parsed_nmea.get("aws_knots")
     elif sentence_type == "ROT":
-        return (timestamp, talker, parsed_nmea.get("rate_of_turn"))
+        return timestamp, talker, parsed_nmea.get("rate_of_turn")
     elif sentence_type == "RSA":
-        return (timestamp, talker, parsed_nmea.get("rudder_angle"))
+        return timestamp, talker, parsed_nmea.get("rudder_angle")
     elif sentence_type == "VTG":
-        return (timestamp, talker, parsed_nmea.get("cog_true"), parsed_nmea.get("cog_magnetic"), parsed_nmea.get("sog_knots"))
+        return timestamp, talker, parsed_nmea.get("cog_true"), parsed_nmea.get("cog_magnetic"), parsed_nmea.get("sog_knots")
     return None
 
 
@@ -305,51 +298,50 @@ def write_batch(conn, batch):
         log.error(f"Error inserting batch into DuckDB: {e}")
 
 
-async def duckdb_publisher_task(database_path: str, queue: asyncio.Queue):
+async def duckdb_publisher_task(db_conn, queue: asyncio.Queue):
     """
     Publishes data from an asynchronous queue to a DuckDB database in batches. The batches
     are configurable in size and interval. The function initializes the database schemas on
     startup.
 
     Args:
-        database_path (str): The file path to the DuckDB database.
+        db_conn: DuckDB database connection.
         queue (asyncio.Queue): The asyncio queue containing items to be batched and inserted into
             the database. Each item represents a single row to be processed.
     """
-    async with duckdb_connection(database_path) as conn:
-        # Initialize schemas
-        for schema_sql in TABLE_SCHEMAS.values():
-            await asyncio.to_thread(conn.execute, schema_sql)
+    # Initialize schemas
+    for schema_sql in TABLE_SCHEMAS.values():
+        await asyncio.to_thread(db_conn.execute, schema_sql)
 
-        batch_size = config["DUCKDB"].get("BATCH_SIZE", 600)
-        batch_interval = config["DUCKDB"].get("BATCH_INTERVAL", 60)
-        log.info(f"Using DuckDB batch size {batch_size} and batch interval {batch_interval} seconds.")
+    batch_size = config["DUCKDB"].get("BATCH_SIZE", 600)
+    batch_interval = config["DUCKDB"].get("BATCH_INTERVAL", 60)
+    log.info(f"Using DuckDB batch size {batch_size} and batch interval {batch_interval} seconds.")
 
-        while True:
-            batch = []
+    while True:
+        batch = []
 
-            # Get items from the queue until we reach the batch size or batch interval, whichever
-            # happens first. Measure elapsed time using the event loop clock, which is guaranteed
-            # to increase monotonically (unlike time.time()).
-            start_time = asyncio.get_event_loop().time()
-            while len(batch) < batch_size:
-                elapsed = asyncio.get_event_loop().time() - start_time
-                remaining = batch_interval - elapsed
-                if remaining <= 0:
-                    break
-                try:
-                    # In order to honor the batch interval, we need to process the batch
-                    # eventually, so set a timeout for the queue get operation.
-                    item = await asyncio.wait_for(queue.get(), timeout=remaining)
-                    batch.append(item)
-                except asyncio.TimeoutError:
-                    break
+        # Get items from the queue until we reach the batch size or batch interval, whichever
+        # happens first. Measure elapsed time using the event loop clock, which is guaranteed
+        # to increase monotonically (unlike time.time()).
+        start_time = asyncio.get_event_loop().time()
+        while len(batch) < batch_size:
+            elapsed = asyncio.get_event_loop().time() - start_time
+            remaining = batch_interval - elapsed
+            if remaining <= 0:
+                break
+            try:
+                # In order to honor the batch interval, we need to process the batch
+                # eventually, so set a timeout for the queue get operation.
+                item = await asyncio.wait_for(queue.get(), timeout=remaining)
+                batch.append(item)
+            except asyncio.TimeoutError:
+                break
 
-            # Group and insert batch in a single thread-safe transaction
-            await asyncio.to_thread(write_batch, conn, batch)
+        # Group and insert batch in a single thread-safe transaction
+        await asyncio.to_thread(write_batch, db_conn, batch)
 
-            for _ in range(len(batch)):
-                queue.task_done()
+        for _ in range(len(batch)):
+            queue.task_done()
 
 async def nmea_reader_task(host, port, subscribers, last_published):
     """Task for reading from a single NMEA socket and putting into the queue.
@@ -429,7 +421,7 @@ def on_publish(client, userdata, mid, reason_code, properties):
 async def gen_nmea(host: str, port: int) -> AsyncGenerator[str, None]:
     """Listen for NMEA data on a TCP socket."""
     nmea_options = config.get("NMEA_OPTIONS", {})
-    nmea_timeout = nmea_options.get("NMEA_TIMEOUT", 20)
+    nmea_timeout = nmea_options.get("NMEA_TIMEOUT", 30)
     reader, writer = await asyncio.open_connection(host, port)
     log.info(f"Connected to NMEA socket at {host}:{port}; timeout: {nmea_timeout} seconds.")
     print(f"Connected to NMEA socket at {host}:{port}; timeout: {nmea_timeout} seconds.")
