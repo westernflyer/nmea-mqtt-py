@@ -75,11 +75,7 @@ async def main():
         sys.exit(1)
 
     if os.getenv("NMEA_MQTT_DEBUG") is not None:
-        try:
-            config["DEBUG"] = int(os.getenv("NMEA_MQTT_DEBUG"))
-        except ValueError:
-            print("Environment variable NMEA_MQTT_DEBUG must be an integer.", file=sys.stderr)
-            sys.exit(1)
+        config["DEBUG"] = int(os.getenv("NMEA_MQTT_DEBUG", 0))
 
     # Set up logging using the system logger
     if sys.platform == "darwin":
@@ -104,7 +100,7 @@ async def main():
         try:
             # Shared queues for parsed NMEA sentences
             subscribers = []
-            mqtt_queue = asyncio.Queue(maxsize=100)
+            mqtt_queue = asyncio.Queue(maxsize=1000)
             subscribers.append(mqtt_queue)
 
             # DuckDB subscriber
@@ -113,7 +109,7 @@ async def main():
             subscribers.append(duckdb_queue)
 
             # Set up the MQTT connection
-            async with managed_connection() as mqtt_client:
+            async with mqtt_managed_connection() as mqtt_client:
                 # Use an Event to signal when the MQTT connection is dropped
                 disconnect_event = asyncio.Event()
 
@@ -309,13 +305,18 @@ def write_batch(conn, batch):
         log.error(f"Error inserting batch into DuckDB: {e}")
 
 
-async def duckdb_publisher_task(database_path, queue):
-    """Task that consumes from the queue and publishes to DuckDB."""
-    conn = None
-    try:
-        # Establish connection
-        conn = await asyncio.to_thread(duckdb.connect, database_path)
+async def duckdb_publisher_task(database_path: str, queue: asyncio.Queue):
+    """
+    Publishes data from an asynchronous queue to a DuckDB database in batches. The batches
+    are configurable in size and interval. The function initializes the database schemas on
+    startup.
 
+    Args:
+        database_path (str): The file path to the DuckDB database.
+        queue (asyncio.Queue): The asyncio queue containing items to be batched and inserted into
+            the database. Each item represents a single row to be processed.
+    """
+    async with duckdb_connection(database_path) as conn:
         # Initialize schemas
         for schema_sql in TABLE_SCHEMAS.values():
             await asyncio.to_thread(conn.execute, schema_sql)
@@ -328,7 +329,8 @@ async def duckdb_publisher_task(database_path, queue):
             batch = []
 
             # Get items from the queue until we reach the batch size or batch interval, whichever
-            # happens first
+            # happens first. Measure elapsed time using the event loop clock, which is guaranteed
+            # to increase monotonically (unlike time.time()).
             start_time = asyncio.get_event_loop().time()
             while len(batch) < batch_size:
                 elapsed = asyncio.get_event_loop().time() - start_time
@@ -348,11 +350,6 @@ async def duckdb_publisher_task(database_path, queue):
 
             for _ in range(len(batch)):
                 queue.task_done()
-    finally:
-        if conn is not None:
-            log.info("Closing DuckDB connection.")
-            await asyncio.to_thread(conn.close)
-
 
 async def nmea_reader_task(host, port, subscribers, last_published):
     """Task for reading from a single NMEA socket and putting into the queue.
@@ -471,9 +468,17 @@ async def mqtt_misc_loop(mqtt_client):
             break
         await asyncio.sleep(1)
 
+@asynccontextmanager
+async def duckdb_connection(database_path):
+    conn = await asyncio.to_thread(duckdb.connect, database_path)
+    try:
+        yield conn
+    finally:
+        log.info("Closing DuckDB connection.")
+        await asyncio.to_thread(conn.close)
 
 @asynccontextmanager
-async def managed_connection():
+async def mqtt_managed_connection():
     """Provides an async context manager for a paho MQTT client connection integrated with asyncio."""
     loop = asyncio.get_running_loop()
     mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
