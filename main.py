@@ -53,6 +53,8 @@ config = {}
 publish_intervals = {}
 last_published = defaultdict(lambda: 0.0)
 
+RETRYABLE_ERRORS = (OSError, socket.gaierror, TimeoutError, asyncio.TimeoutError)
+
 # Logger will be initialized in main()
 log = logging.getLogger("nmea-mqtt")
 
@@ -91,87 +93,38 @@ async def main():
     # Set up the dictionary of last published timestamps.
     publish_intervals = config.get("MQTT_PUBLISH_INTERVALS", {})
 
-    while True:
-        try:
-            # Shared queues for parsed NMEA sentences
-            subscribers = []
-            mqtt_queue = asyncio.Queue(maxsize=1000)
-            subscribers.append(mqtt_queue)
+    # Shared queues for parsed NMEA sentences. Moving them here makes them
+    # persist across failures in any individual service.
+    mqtt_queue = asyncio.Queue(maxsize=1000)
+    duckdb_queue = asyncio.Queue(maxsize=1000)
+    subscribers = [mqtt_queue, duckdb_queue]
 
-            # DuckDB subscriber
-            duckdb_database_path = config['DUCKDB'].get("DATABASE_PATH", "nmea_database.db")
-            duckdb_queue = asyncio.Queue(maxsize=1000)
-            subscribers.append(duckdb_queue)
+    # Start the self-healing services
+    tasks = [
+        asyncio.create_task(mqtt_service(mqtt_queue)),
+        asyncio.create_task(duckdb_service(duckdb_queue))
+    ]
 
-            # Set up the MQTT and DuckDB connections
-            async with (
-                mqtt_managed_connection() as mqtt_client,
-                duckdb_connection(duckdb_database_path) as duckdb_conn
-            ):
-                # Use an Event to signal when the MQTT connection is dropped
-                disconnect_event = asyncio.Event()
+    # Start the NMEA readers
+    nmea_options = config.get("NMEA_OPTIONS", {})
+    for host_url, port in nmea_options.get("NMEA_SOCKETS", []):
+        tasks.append(asyncio.create_task(
+            nmea_reader_task(host_url, port, subscribers)))
 
-                mqtt_config = config.get("MQTT_OPTIONS", {})
-                mqtt_username = mqtt_config.get("MQTT_USERNAME")
-                mqtt_password = mqtt_config.get("MQTT_PASSWORD")
-                if mqtt_username and mqtt_password:
-                    mqtt_client.username_pw_set(mqtt_username, mqtt_password)
-
-                # Set up MQTT callbacks
-                mqtt_client.on_connect = on_connect
-                mqtt_client.on_publish = on_publish
-                mqtt_client.on_disconnect = lambda client, userdata, flags, rc, properties=None: \
-                    on_disconnect(client, userdata, flags, rc, disconnect_event, properties)
-
-                mqtt_client.connect(mqtt_config.get("MQTT_BROKER", "localhost"),
-                                    mqtt_config.get("MQTT_PORT", 1883), 60)
-
-                tasks = [asyncio.create_task(mqtt_misc_loop(mqtt_client)),
-                         asyncio.create_task(mqtt_publisher_task(mqtt_client, mqtt_queue)),
-                         asyncio.create_task(wait_for_disconnect(disconnect_event)),
-                         asyncio.create_task(duckdb_publisher_task(duckdb_conn, duckdb_queue))]
-
-                nmea_options = config.get("NMEA_OPTIONS", {})
-                for host_url, port in nmea_options.get("NMEA_SOCKETS", []):
-                    tasks.append(asyncio.create_task(
-                        nmea_reader_task(host_url, port, subscribers, last_published)))
-
-                # Run until any task fails, or we are cancelled, or MQTT disconnects.
-                # Use return_when=asyncio.FIRST_COMPLETED to catch failures or disconnects.
-                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-
-                # If we're here, one of the tasks has finished. The socket reads should never
-                # complete, so it must be the wait_for_disconnect() task, which means the MQTT
-                # broker disconnected. Tidy up, then restart.
-                for task in done:
-                    try:
-                        task.result()
-                    except Exception as e:
-                        log.error(f"Task {task.get_coro()} failed with error: {e}")
-
-                # Cancel remaining tasks before restarting
-                for task in pending:
-                    task.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
-
-        except asyncio.CancelledError:
-            break
-        except (ConnectionResetError,
-                ConnectionRefusedError,
-                TimeoutError,
-                socket.gaierror,
-                OSError) as e:
-            log.exception(f"Error in main loop: {e}")
-            await warn_print_sleep(f"Error in main loop: {e}")
-        except Exception as e:
-            log.exception("Unexpected error in main loop")
-            await warn_print_sleep(f"Unexpected error in main loop: {e}")
+    try:
+        # Wait for all tasks to complete (which they shouldn't, as they are self-healing)
+        await asyncio.gather(*tasks)
+    except asyncio.CancelledError:
+        log.info("Main loop cancelled.")
+    except Exception as e:
+        log.exception(f"Fatal error in main loop: {e}")
 
 
 async def wait_for_disconnect(disconnect_event):
     """Small task that waits for the disconnect event to be set."""
     await disconnect_event.wait()
     log.warning("MQTT disconnect event triggered.")
+    raise ConnectionError("MQTT broker disconnected")
 
 
 async def mqtt_publisher_task(mqtt_client, queue):
@@ -295,6 +248,7 @@ def write_batch(conn, batch):
     except Exception as e:
         conn.execute("ROLLBACK")
         log.error(f"Error inserting batch into DuckDB: {e}")
+        raise
 
 
 async def duckdb_publisher_task(db_conn, queue: asyncio.Queue):
@@ -342,6 +296,61 @@ async def duckdb_publisher_task(db_conn, queue: asyncio.Queue):
         for _ in range(len(batch)):
             queue.task_done()
 
+
+async def mqtt_service(queue):
+    """Service that manages the MQTT connection and publisher tasks."""
+    while True:
+        try:
+            async with mqtt_managed_connection() as mqtt_client:
+                # Use an Event to signal when the MQTT connection is dropped
+                disconnect_event = asyncio.Event()
+
+                mqtt_config = config.get("MQTT_OPTIONS", {})
+                mqtt_username = mqtt_config.get("MQTT_USERNAME")
+                mqtt_password = mqtt_config.get("MQTT_PASSWORD")
+                if mqtt_username and mqtt_password:
+                    mqtt_client.username_pw_set(mqtt_username, mqtt_password)
+
+                # Set up MQTT callbacks
+                mqtt_client.on_connect = on_connect
+                mqtt_client.on_publish = on_publish
+                mqtt_client.on_disconnect = lambda client, userdata, flags, rc, properties=None: \
+                    on_disconnect(client, userdata, flags, rc, disconnect_event, properties)
+
+                mqtt_client.connect(mqtt_config.get("MQTT_BROKER", "localhost"),
+                                    mqtt_config.get("MQTT_PORT", 1883), 60)
+
+                # Use asyncio.gather to run the publisher and misc tasks.
+                # If any of them fails (including wait_for_disconnect), gather will stop.
+                await asyncio.gather(
+                    mqtt_misc_loop(mqtt_client),
+                    mqtt_publisher_task(mqtt_client, queue),
+                    wait_for_disconnect(disconnect_event)
+                )
+        except asyncio.CancelledError:
+            break
+        except RETRYABLE_ERRORS as e:
+            await warn_print_sleep(str(e), prefix="MQTT service")
+        except Exception as e:
+            log.exception("Unexpected error in MQTT service")
+            await warn_print_sleep(str(e), prefix="MQTT service")
+
+
+async def duckdb_service(queue):
+    """Service that manages the DuckDB connection and publisher task."""
+    duckdb_database_path = config['DUCKDB'].get("DATABASE_PATH", "nmea_database.db")
+    while True:
+        try:
+            async with duckdb_connection(duckdb_database_path) as duckdb_conn:
+                await duckdb_publisher_task(duckdb_conn, queue)
+        except asyncio.CancelledError:
+            break
+        except RETRYABLE_ERRORS as e:
+            await warn_print_sleep(str(e), prefix="DuckDB service")
+        except Exception as e:
+            log.exception("Unexpected error in DuckDB service")
+            await warn_print_sleep(str(e), prefix="DuckDB service")
+
 async def nmea_reader_task(host, port, subscribers):
     """Task for reading from a single NMEA socket and putting into the queue.
     Args:
@@ -350,7 +359,7 @@ async def nmea_reader_task(host, port, subscribers):
         subscribers (list[asyncio.Queue]): List of queues to put parsed NMEA data into.
     """
     global publish_intervals
-    print(f"Starting NMEA reader for {host}:{port}")
+    log.info(f"Starting NMEA reader for {host}:{port}")
     while True:
         try:
             async for line in gen_nmea(host, port):
@@ -378,21 +387,11 @@ async def nmea_reader_task(host, port, subscribers):
                     if address_field in publish_intervals:
                         for queue in subscribers:
                             await queue.put((address_field, parsed_nmea))
-        except (ConnectionResetError, ConnectionRefusedError) as e:
-            log.warning(f"Connection error on {host}:{port} ({e})")
-            await warn_print_sleep(f"Connection error on {host}:{port} ({e})")
-        except asyncio.TimeoutError as e:
-            log.warning(f"Timeout reading error from {host}:{port} ({e})")
-            await warn_print_sleep(f"Timeout reading error from {host}:{port} ({e})")
-        except socket.gaierror as e:
-            log.warning(f"DNS error on {host}:{port} ({e})")
-            await warn_print_sleep(f"DNS error on {host}:{port} ({e})")
-        except OSError as e:
-            log.warning(f"Unexpected OS error on {host}:{port} ({e})")
-            await warn_print_sleep(f"Unexpected OS error on {host}:{port} ({e})")
+        except RETRYABLE_ERRORS as e:
+            await warn_print_sleep(str(e), prefix=f"{host}:{port}")
         except Exception as e:
-            log.exception(f"Unexpected error in reader task for {host}:{port} ({e})")
-            await warn_print_sleep(f"Unexpected error in reader task for {host}:{port} ({e})")
+            log.exception(f"Unexpected error in reader task for {host}:{port}")
+            await warn_print_sleep(str(e), prefix=f"{host}:{port}")
 
 
 def on_connect(client, userdata, flags, reason_code, properties):
@@ -454,7 +453,7 @@ async def mqtt_misc_loop(mqtt_client):
             mqtt_client.loop_misc()
         except Exception as e:
             log.error(f"Error in MQTT misc loop: {e}")
-            break
+            raise
         await asyncio.sleep(1)
 
 @asynccontextmanager
@@ -496,17 +495,18 @@ async def mqtt_managed_connection():
         mqtt_client.disconnect()
 
 
-async def warn_print_sleep(msg: str):
+async def warn_print_sleep(msg: str, prefix: str = ""):
     """Print and log a warning message, then sleep for NMEA_RETRY_WAIT seconds."""
+    full_msg = f"{prefix}: {msg}" if prefix else msg
     nmea_options = config.get("NMEA_OPTIONS", {})
     nmea_retry_wait = nmea_options.get("NMEA_RETRY_WAIT", 60)
-    print(msg, file=sys.stderr)
+    print(full_msg, file=sys.stderr)
     print(f"*** Waiting {nmea_retry_wait} seconds before retrying.", file=sys.stderr)
-    log.warning(msg)
+    log.warning(full_msg)
     log.warning(f"*** Waiting {nmea_retry_wait} seconds before retrying.")
     await asyncio.sleep(nmea_retry_wait)
-    print("*** Retrying...", file=sys.stderr)
-    log.warning("*** Retrying...")
+    print(f"*** {prefix} Retrying..." if prefix else "*** Retrying...", file=sys.stderr)
+    log.warning(f"*** {prefix} Retrying..." if prefix else "*** Retrying...")
 
 
 def run():
