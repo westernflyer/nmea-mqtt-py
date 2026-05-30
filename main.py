@@ -33,7 +33,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime
-import errno
 import json
 import logging
 import os
@@ -343,14 +342,12 @@ async def duckdb_publisher_task(db_conn, queue: asyncio.Queue):
         for _ in range(len(batch)):
             queue.task_done()
 
-async def nmea_reader_task(host, port, subscribers, last_published):
+async def nmea_reader_task(host, port, subscribers):
     """Task for reading from a single NMEA socket and putting into the queue.
     Args:
         host (str): The hostname or IP address of the NMEA socket.
         port (int): The port number of the NMEA socket.
         subscribers (list[asyncio.Queue]): List of queues to put parsed NMEA data into.
-        last_published (dict): Dictionary to track the last published timestamp for each NMEA
-            address field.
     """
     global publish_intervals
     print(f"Starting NMEA reader for {host}:{port}")
