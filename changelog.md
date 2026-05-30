@@ -1,3 +1,6 @@
+# 1.4.0
+Make recovery more robust and consistent between MQTT and DuckDB.
+
 # 1.3.0
 Switch from InfluxDB to DuckDB. InfluxDB had too many limitations.
 

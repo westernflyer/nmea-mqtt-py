@@ -58,11 +58,14 @@ RETRYABLE_ERRORS = (OSError, socket.gaierror, TimeoutError, asyncio.TimeoutError
 # Logger will be initialized in main()
 log = logging.getLogger("nmea-mqtt")
 
+
 async def main():
     global config, publish_intervals
 
-    parser = argparse.ArgumentParser(description="Read NMEA sentences from multiple sockets, parse, then publish to MQTT.")
-    parser.add_argument("--config", default="config.toml", help="Path to the TOML configuration file (default: config.toml)")
+    parser = argparse.ArgumentParser(
+        description="Read NMEA sentences from multiple sockets, parse, then publish to MQTT.")
+    parser.add_argument("--config", default="config.toml",
+                        help="Path to the TOML configuration file (default: config.toml)")
     args = parser.parse_args()
 
     try:
@@ -120,7 +123,7 @@ async def main():
         log.exception(f"Fatal error in main loop: {e}")
 
 
-async def wait_for_disconnect(disconnect_event):
+async def mqtt_wait_for_disconnect(disconnect_event):
     """Small task that waits for the disconnect event to be set."""
     await disconnect_event.wait()
     log.warning("MQTT disconnect event triggered.")
@@ -139,80 +142,219 @@ async def mqtt_publisher_task(mqtt_client, queue):
             topic = (f"{mqtt_config.get('MQTT_TOPIC_PREFIX', 'nmea')}/"
                      f"{config['MMSI']}/"
                      f"{address_field}")
-            publish_nmea(mqtt_client, topic, parsed_nmea)
+            mqtt_publish_nmea(mqtt_client, topic, parsed_nmea)
             queue.task_done()
             last_published[address_field] = parsed_nmea["timestamp"]
 
 
+async def mqtt_service(queue):
+    """Service that manages the MQTT connection and publisher tasks."""
+    while True:
+        try:
+            async with mqtt_managed_connection() as mqtt_client:
+                # Use an Event to signal when the MQTT connection is dropped
+                disconnect_event = asyncio.Event()
+
+                mqtt_config = config.get("MQTT_OPTIONS", {})
+                mqtt_username = mqtt_config.get("MQTT_USERNAME")
+                mqtt_password = mqtt_config.get("MQTT_PASSWORD")
+                if mqtt_username and mqtt_password:
+                    mqtt_client.username_pw_set(mqtt_username, mqtt_password)
+
+                # Set up MQTT callbacks
+                mqtt_client.on_connect = mqtt_on_connect
+                mqtt_client.on_publish = mqtt_on_publish
+                mqtt_client.on_disconnect = lambda client, userdata, flags, rc, properties=None: \
+                    mqtt_on_disconnect(client, userdata, flags, rc, disconnect_event, properties)
+
+                mqtt_client.connect(mqtt_config.get("MQTT_BROKER", "localhost"),
+                                    mqtt_config.get("MQTT_PORT", 1883), 60)
+
+                # Use asyncio.gather to run the publisher and misc tasks.
+                # If any of them fails (including wait_for_disconnect), gather will stop.
+                tasks = [
+                    asyncio.create_task(mqtt_misc_loop(mqtt_client)),
+                    asyncio.create_task(mqtt_publisher_task(mqtt_client, queue)),
+                    asyncio.create_task(mqtt_wait_for_disconnect(disconnect_event))
+                ]
+                try:
+                    await asyncio.gather(*tasks)
+                finally:
+                    # Cancel all tasks on exit
+                    for task in tasks:
+                        task.cancel()
+                    # Wait for all tasks to finish, but ignore CancelledError
+                    await asyncio.gather(*tasks, return_exceptions=True)
+        except asyncio.CancelledError:
+            break
+        except RETRYABLE_ERRORS as e:
+            await warn_print_sleep(str(e), prefix="MQTT service")
+        except Exception as e:
+            log.exception("Unexpected error in MQTT service")
+            await warn_print_sleep(str(e), prefix="MQTT service")
+
+
+def mqtt_on_connect(client, userdata, flags, reason_code, properties):
+    """The callback for when the client receives a CONNACK response from the server."""
+    print(f"Connected to MQTT broker with result code: '{reason_code}'")
+    log.info(f"Connected to MQTT broker with result code: '{reason_code}'")
+
+
+def mqtt_on_disconnect(client, userdata, flags, reason_code, disconnect_event, properties):
+    """The callback for when the client disconnects from the MQTT broker."""
+    print(f"Disconnected from MQTT broker with result code: '{reason_code}'")
+    log.warning(f"Disconnected from MQTT broker with result code: '{reason_code}'")
+    disconnect_event.set()
+
+
+def mqtt_on_publish(client, userdata, mid, reason_code, properties):
+    """Callback for when a PUBLISH message is sent to the server."""
+    if config.get("DEBUG", 0) >= 2:
+        print(f"Message id {mid} published.")
+        log.debug(f"Message id {mid} published.")
+
+
+def mqtt_publish_nmea(mqtt_client: mqtt.Client, topic: str, parsed_nmea: parse_nmea.NmeaDict):
+    """Publish parsed NMEA data to MQTT."""
+    info = mqtt_client.publish(topic, json.dumps(parsed_nmea), qos=0)
+    if info.rc != mqtt.MQTT_ERR_SUCCESS:
+        log.error(f"Failed to publish to MQTT: {info.rc}")
+    if config.get("DEBUG", 0) >= 1 and info.mid % 1000 == 0:
+        log.debug(f"{info.mid}: {parsed_nmea['sentence_type']} {parsed_nmea['timestamp']}")
+
+
+async def mqtt_misc_loop(mqtt_client):
+    """Task to handle MQTT background tasks like keep-alives."""
+    while True:
+        try:
+            mqtt_client.loop_misc()
+        except Exception as e:
+            log.error(f"Error in MQTT misc loop: {e}")
+            raise
+        await asyncio.sleep(1)
+
+
 TABLE_SCHEMAS = {
-    "DPT": """CREATE TABLE IF NOT EXISTS DPT (
-        timestamp TIMESTAMP_MS,
-        talker VARCHAR,
-        depth_below_transducer_meters DOUBLE,
-        transducer_depth_meters DOUBLE,
-        water_depth_meters DOUBLE
-    );""",
-    "GLL": """CREATE TABLE IF NOT EXISTS GLL (
-        timestamp TIMESTAMP_MS,
-        talker VARCHAR,
-        latitude DOUBLE,
-        longitude DOUBLE
-    );""",
-    "HDT": """CREATE TABLE IF NOT EXISTS HDT (
-        timestamp TIMESTAMP_MS,
-        talker VARCHAR,
-        hdg_true DOUBLE
-    );""",
-    "MDA": """CREATE TABLE IF NOT EXISTS MDA (
-        timestamp TIMESTAMP_MS,
-        talker VARCHAR,
-        pressure_millibars DOUBLE,
-        temperature_air_celsius DOUBLE,
-        temperature_water_celsius DOUBLE,
-        humidity_relative DOUBLE,
-        dew_point_celsius DOUBLE,
-        twd_true DOUBLE,
-        twd_magnetic DOUBLE,
-        tws_knots DOUBLE
-    );""",
-    "MWV": """CREATE TABLE IF NOT EXISTS MWV (
-        timestamp TIMESTAMP_MS,
-        talker VARCHAR,
-        awa DOUBLE,
-        aws_knots DOUBLE
-    );""",
-    "ROT": """CREATE TABLE IF NOT EXISTS ROT (
-        timestamp TIMESTAMP_MS,
-        talker VARCHAR,
-        rate_of_turn DOUBLE
-    );""",
-    "RSA": """CREATE TABLE IF NOT EXISTS RSA (
-        timestamp TIMESTAMP_MS,
-        talker VARCHAR,
-        rudder_angle DOUBLE
-    );""",
-    "VTG": """CREATE TABLE IF NOT EXISTS VTG (
-        timestamp TIMESTAMP_MS,
-        talker VARCHAR,
-        cog_true DOUBLE,
-        cog_magnetic DOUBLE,
-        sog_knots DOUBLE
-    );"""
+    "DPT": """CREATE TABLE IF NOT EXISTS DPT
+              (
+                  timestamp
+                  TIMESTAMP_MS,
+                  talker
+                  VARCHAR,
+                  depth_below_transducer_meters
+                  DOUBLE,
+                  transducer_depth_meters
+                  DOUBLE,
+                  water_depth_meters
+                  DOUBLE
+              );""",
+    "GLL": """CREATE TABLE IF NOT EXISTS GLL
+              (
+                  timestamp
+                  TIMESTAMP_MS,
+                  talker
+                  VARCHAR,
+                  latitude
+                  DOUBLE,
+                  longitude
+                  DOUBLE
+              );""",
+    "HDT": """CREATE TABLE IF NOT EXISTS HDT
+              (
+                  timestamp
+                  TIMESTAMP_MS,
+                  talker
+                  VARCHAR,
+                  hdg_true
+                  DOUBLE
+              );""",
+    "MDA": """CREATE TABLE IF NOT EXISTS MDA
+              (
+                  timestamp
+                  TIMESTAMP_MS,
+                  talker
+                  VARCHAR,
+                  pressure_millibars
+                  DOUBLE,
+                  temperature_air_celsius
+                  DOUBLE,
+                  temperature_water_celsius
+                  DOUBLE,
+                  humidity_relative
+                  DOUBLE,
+                  dew_point_celsius
+                  DOUBLE,
+                  twd_true
+                  DOUBLE,
+                  twd_magnetic
+                  DOUBLE,
+                  tws_knots
+                  DOUBLE
+              );""",
+    "MWV": """CREATE TABLE IF NOT EXISTS MWV
+              (
+                  timestamp
+                  TIMESTAMP_MS,
+                  talker
+                  VARCHAR,
+                  awa
+                  DOUBLE,
+                  aws_knots
+                  DOUBLE
+              );""",
+    "ROT": """CREATE TABLE IF NOT EXISTS ROT
+              (
+                  timestamp
+                  TIMESTAMP_MS,
+                  talker
+                  VARCHAR,
+                  rate_of_turn
+                  DOUBLE
+              );""",
+    "RSA": """CREATE TABLE IF NOT EXISTS RSA
+              (
+                  timestamp
+                  TIMESTAMP_MS,
+                  talker
+                  VARCHAR,
+                  rudder_angle
+                  DOUBLE
+              );""",
+    "VTG": """CREATE TABLE IF NOT EXISTS VTG
+              (
+                  timestamp
+                  TIMESTAMP_MS,
+                  talker
+                  VARCHAR,
+                  cog_true
+                  DOUBLE,
+                  cog_magnetic
+                  DOUBLE,
+                  sog_knots
+                  DOUBLE
+              );"""
 }
 
 
 def map_fields(sentence_type, talker, parsed_nmea):
-# TODO: read the ordering from the database schema
+    # TODO: read the ordering from the database schema
     timestamp_ms = parsed_nmea["timestamp"]
-    timestamp = datetime.datetime.fromtimestamp(timestamp_ms / 1000.0, tz=datetime.timezone.utc).replace(tzinfo=None)
+    timestamp = datetime.datetime.fromtimestamp(timestamp_ms / 1000.0,
+                                                tz=datetime.timezone.utc).replace(tzinfo=None)
     if sentence_type == "DPT":
-        return timestamp, talker, parsed_nmea.get("depth_below_transducer_meters"), parsed_nmea.get("transducer_depth_meters"), parsed_nmea.get("water_depth_meters")
+        return timestamp, talker, parsed_nmea.get(
+            "depth_below_transducer_meters"), parsed_nmea.get(
+            "transducer_depth_meters"), parsed_nmea.get("water_depth_meters")
     elif sentence_type == "GLL":
         return timestamp, talker, parsed_nmea.get("latitude"), parsed_nmea.get("longitude")
     elif sentence_type == "HDT":
         return timestamp, talker, parsed_nmea.get("hdg_true")
     elif sentence_type == "MDA":
-        return timestamp, talker, parsed_nmea.get("pressure_millibars"), parsed_nmea.get("temperature_air_celsius"), parsed_nmea.get("temperature_water_celsius"), parsed_nmea.get("humidity_relative"), parsed_nmea.get("dew_point_celsius"), parsed_nmea.get("twd_true"), parsed_nmea.get("twd_magnetic"), parsed_nmea.get("tws_knots")
+        return timestamp, talker, parsed_nmea.get("pressure_millibars"), parsed_nmea.get(
+            "temperature_air_celsius"), parsed_nmea.get(
+            "temperature_water_celsius"), parsed_nmea.get("humidity_relative"), parsed_nmea.get(
+            "dew_point_celsius"), parsed_nmea.get("twd_true"), parsed_nmea.get(
+            "twd_magnetic"), parsed_nmea.get("tws_knots")
     elif sentence_type == "MWV":
         return timestamp, talker, parsed_nmea.get("awa"), parsed_nmea.get("aws_knots")
     elif sentence_type == "ROT":
@@ -220,7 +362,8 @@ def map_fields(sentence_type, talker, parsed_nmea):
     elif sentence_type == "RSA":
         return timestamp, talker, parsed_nmea.get("rudder_angle")
     elif sentence_type == "VTG":
-        return timestamp, talker, parsed_nmea.get("cog_true"), parsed_nmea.get("cog_magnetic"), parsed_nmea.get("sog_knots")
+        return timestamp, talker, parsed_nmea.get("cog_true"), parsed_nmea.get(
+            "cog_magnetic"), parsed_nmea.get("sog_knots")
     return None
 
 
@@ -233,7 +376,7 @@ def write_batch(conn, batch):
             row = map_fields(sentence_type, talker, parsed_nmea)
             if row:
                 grouped[sentence_type].append(row)
-                
+
     # Don't do anything if there was nothing in the batch:
     if not grouped:
         return
@@ -297,45 +440,6 @@ async def duckdb_publisher_task(db_conn, queue: asyncio.Queue):
             queue.task_done()
 
 
-async def mqtt_service(queue):
-    """Service that manages the MQTT connection and publisher tasks."""
-    while True:
-        try:
-            async with mqtt_managed_connection() as mqtt_client:
-                # Use an Event to signal when the MQTT connection is dropped
-                disconnect_event = asyncio.Event()
-
-                mqtt_config = config.get("MQTT_OPTIONS", {})
-                mqtt_username = mqtt_config.get("MQTT_USERNAME")
-                mqtt_password = mqtt_config.get("MQTT_PASSWORD")
-                if mqtt_username and mqtt_password:
-                    mqtt_client.username_pw_set(mqtt_username, mqtt_password)
-
-                # Set up MQTT callbacks
-                mqtt_client.on_connect = on_connect
-                mqtt_client.on_publish = on_publish
-                mqtt_client.on_disconnect = lambda client, userdata, flags, rc, properties=None: \
-                    on_disconnect(client, userdata, flags, rc, disconnect_event, properties)
-
-                mqtt_client.connect(mqtt_config.get("MQTT_BROKER", "localhost"),
-                                    mqtt_config.get("MQTT_PORT", 1883), 60)
-
-                # Use asyncio.gather to run the publisher and misc tasks.
-                # If any of them fails (including wait_for_disconnect), gather will stop.
-                await asyncio.gather(
-                    mqtt_misc_loop(mqtt_client),
-                    mqtt_publisher_task(mqtt_client, queue),
-                    wait_for_disconnect(disconnect_event)
-                )
-        except asyncio.CancelledError:
-            break
-        except RETRYABLE_ERRORS as e:
-            await warn_print_sleep(str(e), prefix="MQTT service")
-        except Exception as e:
-            log.exception("Unexpected error in MQTT service")
-            await warn_print_sleep(str(e), prefix="MQTT service")
-
-
 async def duckdb_service(queue):
     """Service that manages the DuckDB connection and publisher task."""
     duckdb_database_path = config['DUCKDB'].get("DATABASE_PATH", "nmea_database.db")
@@ -350,6 +454,7 @@ async def duckdb_service(queue):
         except Exception as e:
             log.exception("Unexpected error in DuckDB service")
             await warn_print_sleep(str(e), prefix="DuckDB service")
+
 
 async def nmea_reader_task(host, port, subscribers):
     """Task for reading from a single NMEA socket and putting into the queue.
@@ -394,26 +499,6 @@ async def nmea_reader_task(host, port, subscribers):
             await warn_print_sleep(str(e), prefix=f"{host}:{port}")
 
 
-def on_connect(client, userdata, flags, reason_code, properties):
-    """The callback for when the client receives a CONNACK response from the server."""
-    print(f"Connected to MQTT broker with result code: '{reason_code}'")
-    log.info(f"Connected to MQTT broker with result code: '{reason_code}'")
-
-
-def on_disconnect(client, userdata, flags, reason_code, disconnect_event, properties):
-    """The callback for when the client disconnects from the MQTT broker."""
-    print(f"Disconnected from MQTT broker with result code: '{reason_code}'")
-    log.warning(f"Disconnected from MQTT broker with result code: '{reason_code}'")
-    disconnect_event.set()
-
-
-def on_publish(client, userdata, mid, reason_code, properties):
-    """Callback for when a PUBLISH message is sent to the server."""
-    if config.get("DEBUG", 0) >= 2:
-        print(f"Message id {mid} published.")
-        log.debug(f"Message id {mid} published.")
-
-
 async def gen_nmea(host: str, port: int) -> AsyncGenerator[str, None]:
     """Listen for NMEA data on a TCP socket."""
     nmea_options = config.get("NMEA_OPTIONS", {})
@@ -437,25 +522,6 @@ async def gen_nmea(host: str, port: int) -> AsyncGenerator[str, None]:
             pass
 
 
-def publish_nmea(mqtt_client: mqtt.Client, topic: str, parsed_nmea: parse_nmea.NmeaDict):
-    """Publish parsed NMEA data to MQTT."""
-    info = mqtt_client.publish(topic, json.dumps(parsed_nmea), qos=0)
-    if info.rc != mqtt.MQTT_ERR_SUCCESS:
-        log.error(f"Failed to publish to MQTT: {info.rc}")
-    if config.get("DEBUG", 0) >= 1 and info.mid % 1000 == 0:
-        log.debug(f"{info.mid}: {parsed_nmea['sentence_type']} {parsed_nmea['timestamp']}")
-
-
-async def mqtt_misc_loop(mqtt_client):
-    """Task to handle MQTT background tasks like keep-alives."""
-    while True:
-        try:
-            mqtt_client.loop_misc()
-        except Exception as e:
-            log.error(f"Error in MQTT misc loop: {e}")
-            raise
-        await asyncio.sleep(1)
-
 @asynccontextmanager
 async def duckdb_connection(database_path):
     conn = await asyncio.to_thread(duckdb.connect, database_path)
@@ -464,6 +530,7 @@ async def duckdb_connection(database_path):
     finally:
         log.info("Closing DuckDB connection.")
         await asyncio.to_thread(conn.close)
+
 
 @asynccontextmanager
 async def mqtt_managed_connection():

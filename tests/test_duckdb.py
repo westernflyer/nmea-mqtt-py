@@ -19,7 +19,8 @@ async def test_schema_creation(tmp_path):
     queue = asyncio.Queue()
     
     # Start publisher task
-    task = asyncio.create_task(main.duckdb_publisher_task(db_path, queue))
+    conn = duckdb.connect(db_path)
+    task = asyncio.create_task(main.duckdb_publisher_task(conn, queue))
     
     # Allow some time for table creation/initialization
     await asyncio.sleep(0.2)
@@ -30,6 +31,7 @@ async def test_schema_creation(tmp_path):
         await task
     except asyncio.CancelledError:
         pass
+    conn.close()
         
     # Verify tables in the database file
     conn = duckdb.connect(db_path)
@@ -60,7 +62,8 @@ async def test_size_based_flushing(tmp_path):
     }
     
     queue = asyncio.Queue()
-    task = asyncio.create_task(main.duckdb_publisher_task(db_path, queue))
+    conn = duckdb.connect(db_path)
+    task = asyncio.create_task(main.duckdb_publisher_task(conn, queue))
     
     # Feed 3 items
     data = [
@@ -82,7 +85,8 @@ async def test_size_based_flushing(tmp_path):
         await task
     except asyncio.CancelledError:
         pass
-        
+    conn.close()
+    
     # Verify items are in the GLL table
     conn = duckdb.connect(db_path)
     rows = conn.execute("SELECT * FROM GLL").fetchall()
@@ -106,7 +110,8 @@ async def test_interval_based_flushing(tmp_path):
     }
     
     queue = asyncio.Queue()
-    task = asyncio.create_task(main.duckdb_publisher_task(db_path, queue))
+    conn = duckdb.connect(db_path)
+    task = asyncio.create_task(main.duckdb_publisher_task(conn, queue))
     
     # Feed 2 items
     data = [
@@ -127,6 +132,7 @@ async def test_interval_based_flushing(tmp_path):
         await task
     except asyncio.CancelledError:
         pass
+    conn.close()
         
     conn = duckdb.connect(db_path)
     rows = conn.execute("SELECT * FROM GLL").fetchall()
@@ -147,7 +153,8 @@ async def test_sentence_field_mapping(tmp_path):
     }
     
     queue = asyncio.Queue()
-    task = asyncio.create_task(main.duckdb_publisher_task(db_path, queue))
+    conn = duckdb.connect(db_path)
+    task = asyncio.create_task(main.duckdb_publisher_task(conn, queue))
     
     # Test 1: MWV sentence
     # Apparent Wind Speed & Angle
@@ -186,6 +193,7 @@ async def test_sentence_field_mapping(tmp_path):
         await task
     except asyncio.CancelledError:
         pass
+    conn.close()
         
     conn = duckdb.connect(db_path)
     
