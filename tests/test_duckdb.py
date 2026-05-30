@@ -3,6 +3,7 @@ import os
 import pytest
 import duckdb
 import main
+import duckdb_services
 
 @pytest.mark.asyncio
 async def test_schema_creation(tmp_path):
@@ -20,7 +21,7 @@ async def test_schema_creation(tmp_path):
     
     # Start publisher task
     conn = duckdb.connect(db_path)
-    task = asyncio.create_task(main.duckdb_publisher_task(conn, queue))
+    task = asyncio.create_task(duckdb_services.duckdb_publisher_task(conn, queue, main.config))
     
     # Allow some time for table creation/initialization
     await asyncio.sleep(0.2)
@@ -63,7 +64,7 @@ async def test_size_based_flushing(tmp_path):
     
     queue = asyncio.Queue()
     conn = duckdb.connect(db_path)
-    task = asyncio.create_task(main.duckdb_publisher_task(conn, queue))
+    task = asyncio.create_task(duckdb_services.duckdb_publisher_task(conn, queue, main.config))
     
     # Feed 3 items
     data = [
@@ -111,7 +112,7 @@ async def test_interval_based_flushing(tmp_path):
     
     queue = asyncio.Queue()
     conn = duckdb.connect(db_path)
-    task = asyncio.create_task(main.duckdb_publisher_task(conn, queue))
+    task = asyncio.create_task(duckdb_services.duckdb_publisher_task(conn, queue, main.config))
     
     # Feed 2 items
     data = [
@@ -154,7 +155,7 @@ async def test_sentence_field_mapping(tmp_path):
     
     queue = asyncio.Queue()
     conn = duckdb.connect(db_path)
-    task = asyncio.create_task(main.duckdb_publisher_task(conn, queue))
+    task = asyncio.create_task(duckdb_services.duckdb_publisher_task(conn, queue, main.config))
     
     # Test 1: MWV sentence
     # Apparent Wind Speed & Angle

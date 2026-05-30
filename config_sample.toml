@@ -55,12 +55,12 @@ FTMWV = 10000    # Relative wind speed and angle - FT602
 
 # Path to the DuckDB database (env: DUCKDB_DATABASE_PATH)
 # Default: "nmea_database.db"
-DATABASE_PATH = "nmea_database.db"
+# DATABASE_PATH = "nmea_database.db"
 
 # Batch sizes for writes to the database
 # Default: 600
-BATCH_SIZE = 600
+# BATCH_SIZE = 600
 
 # Max batch interval before writing to the database in seconds
 # Default: 60
-BATCH_INTERVAL = 60
+# BATCH_INTERVAL = 60
