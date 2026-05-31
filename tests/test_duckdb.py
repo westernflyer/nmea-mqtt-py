@@ -18,16 +18,16 @@ async def test_schema_creation(tmp_path):
             "BATCH_INTERVAL": 10
         }
     }
-    
+
     queue = asyncio.Queue()
-    
+
     # Start publisher task
     conn = duckdb.connect(db_path)
     task = asyncio.create_task(duckdb_services.duckdb_publisher_task(conn, queue, main.config))
-    
+
     # Allow some time for table creation/initialization
     await asyncio.sleep(0.2)
-    
+
     # Cancel the task
     task.cancel()
     try:
@@ -35,20 +35,20 @@ async def test_schema_creation(tmp_path):
     except asyncio.CancelledError:
         pass
     conn.close()
-        
+
     # Verify tables in the database file
     conn = duckdb.connect(db_path)
     tables = [row[0] for row in conn.execute("PRAGMA show_tables").fetchall()]
     expected_tables = ["DPT", "GLL", "HDT", "MDA", "MWV", "ROT", "RSA", "VTG"]
     for t in expected_tables:
         assert t in tables
-        
+
     # Verify columns in GLL
     columns = conn.execute("PRAGMA table_info('GLL')").fetchall()
     # columns format: (cid, name, type, notnull, dflt_value, pk)
     col_names = [col[1] for col in columns]
     assert col_names == ["timestamp", "talker", "latitude", "longitude"]
-    
+
     conn.close()
 
 
@@ -63,11 +63,11 @@ async def test_size_based_flushing(tmp_path):
             "BATCH_INTERVAL": 10
         }
     }
-    
+
     queue = asyncio.Queue()
     conn = duckdb.connect(db_path)
     task = asyncio.create_task(duckdb_services.duckdb_publisher_task(conn, queue, main.config))
-    
+
     # Feed 3 items
     data = [
         ("GPGLL", {"latitude": 44.623, "longitude": -124.05156, "timestamp": 1778857043108}),
@@ -76,20 +76,20 @@ async def test_size_based_flushing(tmp_path):
     ]
     for item in data:
         await queue.put(item)
-        
+
     # Queue should be processed almost instantly due to batch size 3
     try:
         await asyncio.wait_for(queue.join(), timeout=2.0)
     except asyncio.TimeoutError:
         pytest.fail("Queue join timed out - batch was not flushed instantly")
-        
+
     task.cancel()
     try:
         await task
     except asyncio.CancelledError:
         pass
     conn.close()
-    
+
     # Verify items are in the GLL table
     conn = duckdb.connect(db_path)
     rows = conn.execute("SELECT * FROM GLL").fetchall()
@@ -111,11 +111,11 @@ async def test_interval_based_flushing(tmp_path):
             "BATCH_INTERVAL": 0.5
         }
     }
-    
+
     queue = asyncio.Queue()
     conn = duckdb.connect(db_path)
     task = asyncio.create_task(duckdb_services.duckdb_publisher_task(conn, queue, main.config))
-    
+
     # Feed 2 items
     data = [
         ("GPGLL", {"latitude": 44.623, "longitude": -124.05156, "timestamp": 1778857043108}),
@@ -123,20 +123,20 @@ async def test_interval_based_flushing(tmp_path):
     ]
     for item in data:
         await queue.put(item)
-        
+
     # Wait for the batch interval (0.5s) to trigger the flush
     try:
         await asyncio.wait_for(queue.join(), timeout=2.0)
     except asyncio.TimeoutError:
         pytest.fail("Queue join timed out - interval flush did not occur")
-        
+
     task.cancel()
     try:
         await task
     except asyncio.CancelledError:
         pass
     conn.close()
-        
+
     conn = duckdb.connect(db_path)
     rows = conn.execute("SELECT * FROM GLL").fetchall()
     assert len(rows) == 2
@@ -154,17 +154,17 @@ async def test_sentence_field_mapping(tmp_path):
             "BATCH_INTERVAL": 10
         }
     }
-    
+
     queue = asyncio.Queue()
     conn = duckdb.connect(db_path)
     task = asyncio.create_task(duckdb_services.duckdb_publisher_task(conn, queue, main.config))
-    
+
     # Test 1: MWV sentence
     # Apparent Wind Speed & Angle
     mwv_data = ("WIMWV", {"awa": 240.5, "aws_knots": 12.3, "timestamp": 1778857043110})
     await queue.put(mwv_data)
     await asyncio.wait_for(queue.join(), timeout=1.0)
-    
+
     # Test 2: MDA sentence
     # Met composite data
     mda_data = ("IIMDA", {
@@ -180,7 +180,7 @@ async def test_sentence_field_mapping(tmp_path):
     })
     await queue.put(mda_data)
     await asyncio.wait_for(queue.join(), timeout=1.0)
-    
+
     # Test 3: VTG sentence
     vtg_data = ("GPVTG", {
         "cog_true": 230.1,
@@ -190,23 +190,23 @@ async def test_sentence_field_mapping(tmp_path):
     })
     await queue.put(vtg_data)
     await asyncio.wait_for(queue.join(), timeout=1.0)
-    
+
     task.cancel()
     try:
         await task
     except asyncio.CancelledError:
         pass
     conn.close()
-        
+
     conn = duckdb.connect(db_path)
-    
+
     # Check MWV
     mwv_rows = conn.execute("SELECT * FROM MWV").fetchall()
     assert len(mwv_rows) == 1
     assert mwv_rows[0][1] == "WI"
     assert mwv_rows[0][2] == 240.5
     assert mwv_rows[0][3] == 12.3
-    
+
     # Check MDA
     mda_rows = conn.execute("SELECT * FROM MDA").fetchall()
     assert len(mda_rows) == 1
@@ -219,7 +219,7 @@ async def test_sentence_field_mapping(tmp_path):
     assert mda_rows[0][7] == 180.0
     assert mda_rows[0][8] == 165.0
     assert mda_rows[0][9] == 15.5
-    
+
     # Check VTG
     vtg_rows = conn.execute("SELECT * FROM VTG").fetchall()
     assert len(vtg_rows) == 1
@@ -227,5 +227,46 @@ async def test_sentence_field_mapping(tmp_path):
     assert vtg_rows[0][2] == 230.1
     assert vtg_rows[0][3] == 215.0
     assert vtg_rows[0][4] == 6.8
-    
+
+    conn.close()
+
+
+@pytest.mark.asyncio
+async def test_duckdb_drain_on_cancel(tmp_path):
+    db_path = str(tmp_path / "test_drain.db")
+    config = {
+        "DUCKDB": {
+            "DATABASE_PATH": db_path,
+            "BATCH_SIZE": 100,
+            "BATCH_INTERVAL": 100
+        }
+    }
+    queue = asyncio.Queue()
+    conn = duckdb.connect(db_path)
+
+    # Put some items in the queue
+    for i in range(10):
+        await queue.put(("GPGLL", {"latitude": 44.0 + i / 100, "longitude": -124.0, "timestamp": 1700000000000 + i}))
+
+    # Start the task
+    task = asyncio.create_task(duckdb_services.duckdb_publisher_task(conn, queue, config))
+
+    # Wait a bit to make sure it started and is waiting for more items (since BATCH_SIZE=100)
+    await asyncio.sleep(0.1)
+
+    # Cancel the task. This should trigger the drain.
+    task.cancel()
+
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    # Verify that the 10 items were written
+    rows = conn.execute("SELECT count(*) FROM GLL").fetchone()[0]
+    assert rows == 10
+
+    # Also verify queue.join() would have worked
+    await asyncio.wait_for(queue.join(), timeout=1.0)
+
     conn.close()

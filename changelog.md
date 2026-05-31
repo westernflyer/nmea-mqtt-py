@@ -1,3 +1,6 @@
+# 1.5.0
+Wait for the DuckDB queue to drain before exiting.
+
 # 1.4.0
 Make recovery more robust and consistent between MQTT and DuckDB.
 

@@ -34,6 +34,7 @@ import argparse
 import asyncio
 import logging
 import os
+import signal
 import sys
 import tomllib
 from typing import AsyncGenerator
@@ -95,24 +96,53 @@ async def main():
     subscribers = [mqtt_queue, duckdb_queue]
 
     # Start the self-healing services
-    tasks = [
-        asyncio.create_task(mqtt_services.mqtt_service(mqtt_queue, config)),
-        asyncio.create_task(duckdb_services.duckdb_service(duckdb_queue, config))
-    ]
+    mqtt_service_task = asyncio.create_task(mqtt_services.mqtt_service(mqtt_queue, config))
+    duckdb_service_task = asyncio.create_task(duckdb_services.duckdb_service(duckdb_queue, config))
+    service_tasks = [mqtt_service_task, duckdb_service_task]
 
     # Start the NMEA readers
+    reader_tasks = []
     nmea_options = config.get("NMEA_OPTIONS", {})
     for host_url, port in nmea_options.get("NMEA_SOCKETS", []):
-        tasks.append(asyncio.create_task(
+        reader_tasks.append(asyncio.create_task(
             nmea_reader_task(host_url, port, subscribers)))
 
+    all_tasks = service_tasks + reader_tasks
+
+    # Set up signal handlers to cancel this task
+    loop = asyncio.get_running_loop()
+    main_task = asyncio.current_task()
+    loop.add_signal_handler(signal.SIGTERM, main_task.cancel)
+    loop.add_signal_handler(signal.SIGINT, main_task.cancel)
+
+    # Wait for all tasks to complete. Normally this doesn't happen (because all tasks are self-healing). However,
+    # if a SIGTERM or SIGINT is received, then we will get a CancelledError exception. Guard against it.
     try:
-        # Wait for all tasks to complete (which they shouldn't, as they are self-healing)
-        await asyncio.gather(*tasks)
+        await asyncio.gather(*all_tasks)
     except asyncio.CancelledError:
-        log.info("Main loop cancelled.")
+        log.info("Shutdown signal received. Initiating graceful shutdown.")
+        # 1. Stop Producers
+        for task in reader_tasks:
+            task.cancel()
+        await asyncio.gather(*reader_tasks, return_exceptions=True)
+        log.info("NMEA readers stopped.")
+
+        # 2. Drain DuckDB Queue
+        # Note: This will wait for the current batch to be flushed by the service,
+        # which may take up to BATCH_INTERVAL seconds.
+        log.info("Waiting for DuckDB queue to drain...")
+        await duckdb_queue.join()
+        log.info("DuckDB queue drained.")
+
+        # 3. Stop Services
+        for task in service_tasks:
+            task.cancel()
+        await asyncio.gather(*service_tasks, return_exceptions=True)
+        log.info("Services stopped.")
     except Exception as e:
         log.exception(f"Fatal error in main loop: {e}")
+    finally:
+        log.info("NMEA-MQTT shutdown complete.")
 
 
 async def nmea_reader_task(host, port, subscribers):
@@ -182,10 +212,7 @@ async def gen_nmea(host: str, port: int) -> AsyncGenerator[str, None]:
 
 
 def run():
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        sys.exit("Keyboard interrupt. Exiting.")
+    asyncio.run(main())
 
 
 if __name__ == "__main__":

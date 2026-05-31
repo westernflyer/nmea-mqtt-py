@@ -188,31 +188,47 @@ async def duckdb_publisher_task(db_conn: DuckDBPyConnection,
     batch_interval = config["DUCKDB"].get("BATCH_INTERVAL", 60)
     log.info(f"Using DuckDB batch size {batch_size} and batch interval {batch_interval} seconds.")
 
-    while True:
-        batch = []
+    batch = []
+    try:
+        while True:
+            # Get items from the queue until we reach the batch size or batch interval, whichever
+            # happens first. Measure elapsed time using the event loop clock, which is guaranteed
+            # to increase monotonically (unlike time.time()).
+            start_time = asyncio.get_event_loop().time()
+            while len(batch) < batch_size:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                remaining = batch_interval - elapsed
+                if remaining <= 0:
+                    break
+                try:
+                    # In order to honor the batch interval, we need to process the batch
+                    # eventually, so set a timeout for the queue get operation.
+                    item = await asyncio.wait_for(queue.get(), timeout=remaining)
+                    batch.append(item)
+                except asyncio.TimeoutError:
+                    break
 
-        # Get items from the queue until we reach the batch size or batch interval, whichever
-        # happens first. Measure elapsed time using the event loop clock, which is guaranteed
-        # to increase monotonically (unlike time.time()).
-        start_time = asyncio.get_event_loop().time()
-        while len(batch) < batch_size:
-            elapsed = asyncio.get_event_loop().time() - start_time
-            remaining = batch_interval - elapsed
-            if remaining <= 0:
-                break
+            # Group and insert batch in a single thread-safe transaction
+            await asyncio.to_thread(write_batch, db_conn, batch)
+
+            for _ in range(len(batch)):
+                queue.task_done()
+            batch = []
+    except asyncio.CancelledError:
+        log.info("DuckDB publisher task cancelled. Draining remaining items from the queue.")
+        # Drain the remaining items from the queue
+        while not queue.empty():
             try:
-                # In order to honor the batch interval, we need to process the batch
-                # eventually, so set a timeout for the queue get operation.
-                item = await asyncio.wait_for(queue.get(), timeout=remaining)
+                item = queue.get_nowait()
                 batch.append(item)
-            except asyncio.TimeoutError:
+            except asyncio.QueueEmpty:
                 break
-
-        # Group and insert batch in a single thread-safe transaction
-        await asyncio.to_thread(write_batch, db_conn, batch)
-
-        for _ in range(len(batch)):
-            queue.task_done()
+        if batch:
+            log.info(f"Draining DuckDB queue: writing final {len(batch)} items.")
+            await asyncio.to_thread(write_batch, db_conn, batch)
+            for _ in range(len(batch)):
+                queue.task_done()
+        raise
 
 
 async def duckdb_service(queue: asyncio.Queue, config: dict[str, dict[str, str]]):

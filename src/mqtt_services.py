@@ -89,8 +89,8 @@ async def mqtt_publisher_task(mqtt_client: mqtt.Client, queue: Queue, config: di
                      f"{config['MMSI']}/"
                      f"{address_field}")
             mqtt_publish_nmea(mqtt_client, topic, parsed_nmea, config)
-            queue.task_done()
             last_published[address_field] = parsed_nmea["timestamp"]
+        queue.task_done()
 
 async def mqtt_service(queue: Queue, config: dict):
     """Service that manages the MQTT connection and publisher tasks."""

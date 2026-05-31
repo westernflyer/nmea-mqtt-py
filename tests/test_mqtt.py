@@ -154,3 +154,37 @@ async def test_mqtt_service_task_cancellation():
         mqtt_services.mqtt_publisher_task = original_pub
         mqtt_services.mqtt_misc_loop = original_misc
         mqtt_services.warn_print_sleep = original_sleep
+
+
+@pytest.mark.asyncio
+async def test_mqtt_publisher_task_done_bug():
+    # Setup
+    queue = asyncio.Queue()
+    mqtt_client = MagicMock()
+    config = {
+        "MMSI": "123456789",
+        "MQTT_OPTIONS": {"MQTT_TOPIC_PREFIX": "nmea"},
+        "MQTT_PUBLISH_INTERVALS": {"GPGLL": 1000} # 1 second interval
+    }
+
+    import mqtt_services
+    mqtt_services.publish_intervals = config["MQTT_PUBLISH_INTERVALS"]
+    mqtt_services.last_published = {"GPGLL": 0}
+
+    # Put two items in the queue.
+    # The first one should be published.
+    # The second one (with a timestamp only 100ms later) should be skipped.
+    await queue.put(("GPGLL", {"timestamp": 1000, "sentence_type": "GLL"}))
+    await queue.put(("GPGLL", {"timestamp": 1100, "sentence_type": "GLL"}))
+
+    # Run the publisher task for a short time
+    task = asyncio.create_task(mqtt_services.mqtt_publisher_task(mqtt_client, queue, config))
+
+    # Wait for the queue to be joined. This should NOT hang now.
+    await asyncio.wait_for(queue.join(), timeout=1.0)
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
