@@ -4,9 +4,40 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE.txt.txt file in the root directory of this source tree.
 #
+"""
+MQTT-based handling and publishing of NMEA messages.
+
+This module provides routines for publishing NMEA data to an MQTT broker. It
+handles all aspects of MQTT communication, including establishing connections,
+publishing data at specified intervals, and managing disconnects. It leverages
+the asyncio framework to support asynchronous operations and ensure the
+efficient handling of MQTT communication.
+
+Classes and high-level functions within the module include:
+- mqtt_publisher_task: Publishes parsed NMEA messages from an
+  asynchronous queue to an MQTT broker.
+- mqtt_service: Manages the MQTT client connection and spawns tasks for
+  message publishing and other MQTT-related activities.
+- mqtt_misc_loop: Executes MQTT background tasks such as keep-alives.
+- mqtt_managed_connection: A context manager to handle MQTT connections
+  asynchronously.
+
+It relies on the `paho.mqtt.client` library for MQTT protocol handling and
+supports error handling for reconnection on retryable errors.
+
+Functions:
+- mqtt_wait_for_disconnect: Handles waiting for disconnect events.
+- mqtt_on_connect: Handles MQTT client connection events.
+- mqtt_on_disconnect: Handles MQTT client disconnection events.
+- mqtt_on_publish: Handles events triggered after message publication.
+
+Exceptions raised during operations are logged or handled, ensuring
+robust service behavior.
+"""
 import asyncio
 import json
 import logging
+from asyncio import Queue
 from collections import defaultdict
 from contextlib import asynccontextmanager
 
@@ -21,14 +52,32 @@ log = logging.getLogger("nmea-mqtt.mqtt")
 last_published = defaultdict(lambda: 0.0)
 publish_intervals = {}
 
-async def mqtt_wait_for_disconnect(disconnect_event):
+async def mqtt_wait_for_disconnect(disconnect_event: asyncio.Event):
     """Small task that waits for the disconnect event to be set."""
     await disconnect_event.wait()
     log.warning("MQTT disconnect event triggered.")
     raise ConnectionError("MQTT broker disconnected")
 
-async def mqtt_publisher_task(mqtt_client, queue, config):
-    """Task that consumes from the queue and publishes to MQTT."""
+
+async def mqtt_publisher_task(mqtt_client: mqtt.Client, queue: Queue, config: dict) -> None:
+    """
+    Publishes NMEA data to an MQTT broker at specified intervals.
+
+    The function listens for NMEA messages from an asynchronous queue, calculates
+    the time interval since the last publication for a specific address, and, if
+    the interval exceeds the defined threshold, publishes the NMEA data to the
+    configured MQTT topic.
+
+    Parameters:
+        mqtt_client: The MQTT client instance used for publishing messages. This
+            client should be connected and ready to publish.
+        queue: An asyncio.Queue object containing tuples with address fields and
+            parsed NMEA data. The parsed NMEA data is expected to include a
+            "timestamp" field.
+        config: A configuration dictionary that includes the MQTT options and the
+            MMSI value. The MQTT_OPTIONS section may contain MQTT_TOPIC_PREFIX to
+            customize the base topic.
+    """
     global last_published, publish_intervals
 
     while True:
@@ -43,7 +92,7 @@ async def mqtt_publisher_task(mqtt_client, queue, config):
             queue.task_done()
             last_published[address_field] = parsed_nmea["timestamp"]
 
-async def mqtt_service(queue, config):
+async def mqtt_service(queue: Queue, config: dict):
     """Service that manages the MQTT connection and publisher tasks."""
     global publish_intervals
     publish_intervals = config.get("MQTT_PUBLISH_INTERVALS", {})
@@ -117,7 +166,7 @@ def mqtt_publish_nmea(mqtt_client: mqtt.Client, topic: str, parsed_nmea: parse_n
     if config.get("DEBUG", 0) >= 1 and info.mid % 1000 == 0:
         log.debug(f"{info.mid}: {parsed_nmea['sentence_type']} {parsed_nmea['timestamp']}")
 
-async def mqtt_misc_loop(mqtt_client):
+async def mqtt_misc_loop(mqtt_client: mqtt.Client):
     """Task to handle MQTT background tasks like keep-alives."""
     while True:
         try:

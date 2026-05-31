@@ -1,9 +1,10 @@
 import asyncio
-import pytest
-from unittest.mock import MagicMock, AsyncMock
-import mqtt_services
-import service_utils
 import json
+from unittest.mock import MagicMock
+
+import pytest
+
+import mqtt_services
 
 mqtt_services.publish_intervals['GPGLL'] = 1.0
 

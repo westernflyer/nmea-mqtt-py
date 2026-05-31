@@ -4,6 +4,14 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE.txt.txt file in the root directory of this source tree.
 #
+"""
+Provides functionality to handle and publish NMEA sentence data into a DuckDB database.
+
+The module organizes NMEA sentence data based on their types and inserts it into
+predefined tables in a DuckDB database in batches. The schema for each table is
+defined based on supported sentence types. It also supports publishing data from
+an async queue to the database with configurable batch size and interval.
+"""
 import asyncio
 import datetime
 import logging
