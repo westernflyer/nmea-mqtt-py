@@ -52,7 +52,7 @@ publish_intervals = {}
 log = logging.getLogger("nmea-mqtt")
 
 
-async def main():
+async def main() -> None:
     global config, publish_intervals
 
     parser = argparse.ArgumentParser(
@@ -66,6 +66,8 @@ async def main():
             config = tomllib.load(f)
     except FileNotFoundError:
         sys.exit(f"Configuration file {args.config} not found.")
+    except tomllib.TOMLDecodeError as e:
+        sys.exit(f"Error parsing configuration file {args.config}: {e}")
 
     if os.getenv("NMEA_MQTT_DEBUG") is not None:
         config["DEBUG"] = int(os.getenv("NMEA_MQTT_DEBUG", 0))
@@ -106,6 +108,9 @@ async def main():
     for host_url, port in nmea_options.get("NMEA_SOCKETS", []):
         reader_tasks.append(asyncio.create_task(
             nmea_reader_task(host_url, port, subscribers)))
+
+    if not reader_tasks:
+        sys.exit("No NMEA sockets configured.")
 
     all_tasks = service_tasks + reader_tasks
 

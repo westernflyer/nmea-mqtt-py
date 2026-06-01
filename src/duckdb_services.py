@@ -90,7 +90,7 @@ TABLE_SCHEMAS = {
 }
 
 
-def map_fields(sentence_type: str, talker, parsed_nmea:dict[str, float | str | None]):
+def map_fields(sentence_type: str, talker: str, parsed_nmea:dict[str, float | str | None]):
     # TODO: read the ordering from the database schema
     timestamp_ms = parsed_nmea["timestamp"]
     timestamp = datetime.datetime.fromtimestamp(timestamp_ms / 1000.0,
@@ -173,6 +173,9 @@ async def duckdb_publisher_task(db_conn: DuckDBPyConnection,
     Publishes data from an asynchronous queue to a DuckDB database in batches. The batches
     are configurable in size and interval. The function initializes the database schemas on
     startup.
+
+    The function catches CancelledError exceptions and arranges to drain any remaining items from
+    the queue.
 
     Args:
         db_conn: DuckDB database connection.
