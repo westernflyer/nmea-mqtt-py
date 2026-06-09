@@ -78,7 +78,10 @@ enable the [Quack protocol](https://duckdb.org/docs/current/quack/overview).
 This starts a Quack server within the `nmea-logger` process, which maintains
 primary ownership of the database file while allowing remote connections.
 
-The Quack protocol requires DuckDB version 1.5.3 or later.
+##### Notice
+The Quack protocol is still in beta and has a few bugs. It also requires DuckDB version 1.5.3 or later.
+
+#### Configuration
 
 Example configuration in `config.toml`:
 
@@ -86,14 +89,30 @@ Example configuration in `config.toml`:
 [DUCKDB.QUACK]
 ENABLE = true
 ADDRESS = "localhost:9494"
-TOKEN = "optional_secret_token"
+TOKEN = "secret_token"
 ```
 
 You can then connect to the database from another process (e.g., using the DuckDB CLI):
 
 ```bash
-duckdb -c "ATTACH 'quack:localhost:9494' AS nmea (TOKEN optional_secret_token); SELECT * FROM nmea.GLL LIMIT 10;"```
+duckdb -c "ATTACH 'quack:localhost:9494' AS nmea (TOKEN secret_token); SELECT * FROM nmea.GLL LIMIT 10;"```
 ```
+
+To allow connections from hosts other than the local machine, follow this configuration:
+
+```toml
+[DUCKDB.QUACK]
+ENABLE = true
+ADDRESS = "192.168.0.16:9494"
+ALLOW_OTHER_HOSTNAME = true
+TOKEN = "secret_token"
+```
+
+Then from the client:
+
+```bash
+duckdb -c "ATTACH 'quack:192.168.0.16:9494' AS nmea (TOKEN secret_token); SELECT * FROM nmea.GLL LIMIT 10;"```
+````
 
 ## Requirements
 

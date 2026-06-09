@@ -190,15 +190,23 @@ async def duckdb_publisher_task(db_conn: DuckDBPyConnection,
     quack_config = config.get("DUCKDB", {}).get("QUACK", {})
     if quack_config.get("ENABLE", False):
         address = quack_config.get("ADDRESS", "localhost:9494")
-        token = quack_config.get("TOKEN", "")
+        token = quack_config.get("TOKEN", "secret_token")
+        allow_other_hostname = quack_config.get("ALLOW_OTHER_HOSTNAME", False)
         try:
             log.info(f"Starting DuckDB Quack server on {address}")
+            sql_str = f"CALL quack_serve('quack:{address}'"
             if token:
-                await asyncio.to_thread(db_conn.execute, f"CALL quack_serve('quack:{address}', token='{token}')")
-            else:
-                await asyncio.to_thread(db_conn.execute, f"CALL quack_serve('quack:{address}')")
+                sql_str += f", token='{token}'"
+            if allow_other_hostname:
+                sql_str += ", allow_other_hostname=true"
+            sql_str += ")"
+            res = await asyncio.to_thread(db_conn.execute, sql_str)
         except Exception as e:
             log.error(f"Failed to start DuckDB Quack server on {address}: {e}")
+        else:
+            uri, url, token = res.fetchone()
+            log.info(f"DuckDB Quack server started on {address}.")
+            log.debug(f"Quack server URI '{uri}', URL '{url}' and token '{token}'")
 
     batch_size = config["DUCKDB"].get("BATCH_SIZE", 1200)
     batch_interval = config["DUCKDB"].get("BATCH_INTERVAL", 120)

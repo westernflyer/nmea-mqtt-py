@@ -5,8 +5,9 @@
 #    Instead, copy it to config.toml, then edit that.
 #
 
-# Set to 1 for debug messages, set to 2 for even more messages
-# This can be overridden with the NMEA_MQTT_DEBUG environment variable.
+# Set to 1 for debug messages, set to 2 for even more messages.
+# This can be overridden with the NMEA_LOGGER_DEBUG environment variable.
+# Note: this may expose confidential info in the log.
 DEBUG = 0
 
 # Vessel related
@@ -67,13 +68,17 @@ FTMWV = 10000    # Relative wind speed and angle - FT602
 
 [DUCKDB.QUACK]
 # Set to true to enable the Quack protocol
-# Default: False
+# Default: false
 # ENABLE = false
 
 # Address to listen on for the Quack protocol
 # Default: "localhost:9494"
 # ADDRESS = "localhost:9494"
 
-# Optional token for authentication. Use an empty string for no token.
-# Default: (no token)
-# TOKEN = "optional_secret_token"
+# To allow remote hosts, set to true:
+# Default: false
+# ALLOW_OTHER_HOSTNAME = false
+
+# Token for authentication.
+# Default: "secret_token"
+# TOKEN = "secret_token"
