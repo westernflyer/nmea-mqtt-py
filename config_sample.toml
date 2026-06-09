@@ -58,9 +58,22 @@ FTMWV = 10000    # Relative wind speed and angle - FT602
 # DATABASE_PATH = "nmea_database.db"
 
 # Batch sizes for writes to the database
-# Default: 600
-# BATCH_SIZE = 600
+# Default: 1200
+# BATCH_SIZE = 1200
 
-# Max batch interval before writing to the database in seconds
-# Default: 60
-# BATCH_INTERVAL = 60
+# Max batch interval (in seconds) before writing to the database
+# Default: 120
+# BATCH_INTERVAL = 120
+
+[DUCKDB.QUACK]
+# Set to true to enable the Quack protocol
+# Default: False
+# ENABLE = false
+
+# Address to listen on for the Quack protocol
+# Default: "localhost:9494"
+# ADDRESS = "localhost:9494"
+
+# Optional token for authentication. Use an empty string for no token.
+# Default: (no token)
+# TOKEN = "optional_secret_token"

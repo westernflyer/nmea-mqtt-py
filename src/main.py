@@ -69,8 +69,8 @@ async def main() -> None:
     except tomllib.TOMLDecodeError as e:
         sys.exit(f"Error parsing configuration file {args.config}: {e}")
 
-    if os.getenv("NMEA_MQTT_DEBUG") is not None:
-        config["DEBUG"] = int(os.getenv("NMEA_MQTT_DEBUG", 0))
+    if os.getenv("NMEA_LOGGER_DEBUG") is not None:
+        config["DEBUG"] = int(os.getenv("NMEA_LOGGER_DEBUG", 0))
 
     # Set up logging using the system logger
     if sys.platform == "darwin":

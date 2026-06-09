@@ -1,3 +1,6 @@
+# 1.7.0
+Added support for the DuckDB "Quack" protocol.
+
 # 1.6.0
 Changed name to `nmea-logger-py`.
 

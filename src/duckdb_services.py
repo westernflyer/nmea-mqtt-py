@@ -187,8 +187,21 @@ async def duckdb_publisher_task(db_conn: DuckDBPyConnection,
     for schema_sql in TABLE_SCHEMAS.values():
         await asyncio.to_thread(db_conn.execute, schema_sql)
 
-    batch_size = config["DUCKDB"].get("BATCH_SIZE", 600)
-    batch_interval = config["DUCKDB"].get("BATCH_INTERVAL", 60)
+    quack_config = config.get("DUCKDB", {}).get("QUACK", {})
+    if quack_config.get("ENABLE", False):
+        address = quack_config.get("ADDRESS", "localhost:9494")
+        token = quack_config.get("TOKEN", "")
+        try:
+            log.info(f"Starting DuckDB Quack server on {address}")
+            if token:
+                await asyncio.to_thread(db_conn.execute, f"CALL quack_serve('quack:{address}', token='{token}')")
+            else:
+                await asyncio.to_thread(db_conn.execute, f"CALL quack_serve('quack:{address}')")
+        except Exception as e:
+            log.error(f"Failed to start DuckDB Quack server on {address}: {e}")
+
+    batch_size = config["DUCKDB"].get("BATCH_SIZE", 1200)
+    batch_interval = config["DUCKDB"].get("BATCH_INTERVAL", 120)
     log.info(f"Using DuckDB batch size {batch_size} and batch interval {batch_interval} seconds.")
 
     batch = []

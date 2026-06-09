@@ -50,8 +50,8 @@ Example configuration:
 ```toml
 [DUCKDB]
 DATABASE_PATH = "nmea_database.db"
-BATCH_SIZE = 600
-BATCH_INTERVAL = 60
+BATCH_SIZE = 1200
+BATCH_INTERVAL = 120
 ```
 
 The data is grouped by sentence type and written using parameterized batch
@@ -59,74 +59,45 @@ insertions. The database contains eight distinct tables, one for each supported
 NMEA sentence type (`DPT`, `GLL`, `HDT`, `MDA`, `MWV`, `ROT`, `RSA`, `VTG`).
 Naive UTC timestamps are stored under the `timestamp` column.
 
-Here are the SQL schemas used for each of the eight tables:
+Here is the schema for the `GLL` table. Other tables are similar.
 
 ```sql
-CREATE TABLE IF NOT EXISTS DPT (
+CREATE TABLE IF NOT EXISTS GLL
+(
     timestamp TIMESTAMP_MS,
-    talker VARCHAR,
-    depth_below_transducer_meters DOUBLE,
-    transducer_depth_meters DOUBLE,
-    water_depth_meters DOUBLE
-);
-
-CREATE TABLE IF NOT EXISTS GLL (
-    timestamp TIMESTAMP_MS,
-    talker VARCHAR,
-    latitude DOUBLE,
+    talker    VARCHAR,
+    latitude  DOUBLE,
     longitude DOUBLE
 );
+```
 
-CREATE TABLE IF NOT EXISTS HDT (
-    timestamp TIMESTAMP_MS,
-    talker VARCHAR,
-    hdg_true DOUBLE
-);
+## DuckDB Quack protocol
 
-CREATE TABLE IF NOT EXISTS MDA (
-    timestamp TIMESTAMP_MS,
-    talker VARCHAR,
-    pressure_millibars DOUBLE,
-    temperature_air_celsius DOUBLE,
-    temperature_water_celsius DOUBLE,
-    humidity_relative DOUBLE,
-    dew_point_celsius DOUBLE,
-    twd_true DOUBLE,
-    twd_magnetic DOUBLE,
-    tws_knots DOUBLE
-);
+To allow multiple processes to access the DuckDB database concurrently, you can
+enable the [Quack protocol](https://duckdb.org/docs/current/quack/overview).
+This starts a Quack server within the `nmea-logger` process, which maintains
+primary ownership of the database file while allowing remote connections.
 
-CREATE TABLE IF NOT EXISTS MWV (
-    timestamp TIMESTAMP_MS,
-    talker VARCHAR,
-    awa DOUBLE,
-    aws_knots DOUBLE
-);
+The Quack protocol requires DuckDB version 1.5.3 or later.
 
-CREATE TABLE IF NOT EXISTS ROT (
-    timestamp TIMESTAMP_MS,
-    talker VARCHAR,
-    rate_of_turn DOUBLE
-);
+Example configuration in `config.toml`:
 
-CREATE TABLE IF NOT EXISTS RSA (
-    timestamp TIMESTAMP_MS,
-    talker VARCHAR,
-    rudder_angle DOUBLE
-);
+```toml
+[DUCKDB.QUACK]
+ENABLE = true
+ADDRESS = "localhost:9494"
+TOKEN = "optional_secret_token"
+```
 
-CREATE TABLE IF NOT EXISTS VTG (
-    timestamp TIMESTAMP_MS,
-    talker VARCHAR,
-    cog_true DOUBLE,
-    cog_magnetic DOUBLE,
-    sog_knots DOUBLE
-);
+You can then connect to the database from another process (e.g., using the DuckDB CLI):
+
+```bash
+duckdb -c "ATTACH 'quack:localhost:9494' AS nmea (TOKEN optional_secret_token); SELECT * FROM nmea.GLL LIMIT 10;"```
 ```
 
 ## Requirements
 
-- DuckDB.
+- DuckDB (version 1.5.3 or later required for Quack protocol).
 - An MQTT broker.
 - Python v3.12 or greater. Earlier versions cannot be used due to how
   parameter types have been specified, and how `asyncio` raises `Timeout` 
