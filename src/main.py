@@ -49,7 +49,7 @@ config = {}
 publish_intervals = {}
 
 # Logger will be initialized in main()
-log = logging.getLogger("nmea-mqtt")
+log = logging.getLogger("nmea-logger")
 
 
 async def main() -> None:
@@ -75,7 +75,7 @@ async def main() -> None:
     # Set up logging using the system logger
     if sys.platform == "darwin":
         from logging.handlers import TimedRotatingFileHandler
-        log_file = "/var/tmp/nmea-mqtt.log"
+        log_file = "/var/tmp/nmea-logger.log"
         handler = TimedRotatingFileHandler(log_file, when='midnight', backupCount=7)
     else:
         from logging.handlers import SysLogHandler
@@ -85,7 +85,7 @@ async def main() -> None:
     handler.setFormatter(formatter)
     log.addHandler(handler)
 
-    log.info("Starting up nmea-mqtt.  ")
+    log.info("Starting up nmea-logger.  ")
     log.info("Debug level: %s", config.get("DEBUG"))
 
     # Set up the dictionary of last published timestamps.
@@ -147,7 +147,7 @@ async def main() -> None:
     except Exception as e:
         log.exception(f"Fatal error in main loop: {e}")
     finally:
-        log.info("NMEA-MQTT shutdown complete.")
+        log.info("nmea-logger shutdown complete.")
 
 
 async def nmea_reader_task(host, port, subscribers):

@@ -46,7 +46,7 @@ import paho.mqtt.client as mqtt
 import parse_nmea
 from service_utils import RETRYABLE_ERRORS, warn_print_sleep
 
-log = logging.getLogger("nmea-mqtt.mqtt")
+log = logging.getLogger("nmea-logger.mqtt")
 
 # State for MQTT
 last_published = defaultdict(lambda: 0.0)

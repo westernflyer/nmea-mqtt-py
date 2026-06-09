@@ -3,7 +3,7 @@
 # NMEA Simulator
 
 This directory contains a simulator that generates synthetic NMEA 0183 sentences and publishes them to an MQTT broker. 
-It uses the same data structures and configuration as the main `nmea-mqtt` program.
+It uses the same data structures and configuration as the main `nmea-logger` program.
 
 ## Usage
 

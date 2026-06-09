@@ -1,3 +1,6 @@
+# 1.6.0
+Changed name to `nmea-logger-py`.
+
 # 1.5.0
 Wait for the DuckDB queue to drain before exiting.
 

@@ -1,8 +1,8 @@
-# systemd service configuration file for nmea-mqtt
+# systemd service configuration file for nmea-logger
 
 [Unit]
 Description=NMEA 0183 to MQTT gateway
-Documentation=https://github.com/westernflyer/nmea-mqtt-py
+Documentation=https://github.com/westernflyer/nmea-logger-py
 Requires=time-sync.target
 After=time-sync.target
 Wants=network-online.target
@@ -10,15 +10,15 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/nmea/git/nmea-mqtt-py
-ExecStart= /home/nmea/git/nmea-mqtt-py/.venv/bin/nmea-mqtt
+WorkingDirectory=/home/nmea/git/nmea-logger-py
+ExecStart= /home/nmea/git/nmea-logger-py/.venv/bin/nmea-logger
 Restart=on-failure
 StandardOutput=null
 StandardError=journal+console
 User=nmea
 Group=nmea
 # Optional file holding environment data
-EnvironmentFile=-/etc/defaults/nmea-mqtt
+EnvironmentFile=-/etc/defaults/nmea-logger
 
 [Install]
 WantedBy=multi-user.target

@@ -23,7 +23,7 @@ from duckdb import DuckDBPyConnection
 
 from service_utils import RETRYABLE_ERRORS, warn_print_sleep
 
-log = logging.getLogger("nmea-mqtt.duckdb")
+log = logging.getLogger("nmea-logger.duckdb")
 
 TABLE_SCHEMAS = {
     "DPT": """CREATE TABLE IF NOT EXISTS DPT

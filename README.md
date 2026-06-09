@@ -1,4 +1,4 @@
-## nmea-mqtt-py
+## nmea-logger-py
 
 Read NMEA 0183 sentences from one or more sockets, parse them, then publish to
 MQTT as JSON, and store to a DuckDB database.
@@ -139,25 +139,25 @@ CREATE TABLE IF NOT EXISTS VTG (
 1. Create the user `nmea` and set a password:
 
     ```
-    sudo useradd -m -c"Owns the nmea-mqtt process" -s /bin/bash nmea
+    sudo useradd -m -c"Owns the nmea-logger process" -s /bin/bash nmea
     sudo passwd nmea
    ```
 
 2. Log in as that user, then clone the Git repository. The following will place
-the repository at `~nmea/git/nmea-mqtt-py`. Adjust the path to your preference,
+the repository at `~nmea/git/nmea-logger-py`. Adjust the path to your preference,
 but make sure you use it consistently in what follows.
 
     ```
     cd ~
     mkdir git
     cd git
-    git clone https://github.com/westernflyer/nmea-mqtt-py
+    git clone https://github.com/westernflyer/nmea-logger-py
     ```
 
 3. Create a Python virtual environment, activate it, then install requirements
 
     ```
-    cd ~/git/nmea-mqtt-py
+    cd ~/git/nmea-logger-py
     python3 -m venv .venv
     source .venv/bin/activate
     pip install -e .
@@ -166,7 +166,7 @@ but make sure you use it consistently in what follows.
 4. Copy a configuration file into place, then edit it with your requirements.
 
    ```
-   cd ~/git/nmea-mqtt-py
+   cd ~/git/nmea-logger-py
    cp config_sample.toml config.toml
    nano config.toml
    ```
@@ -177,19 +177,19 @@ but make sure you use it consistently in what follows.
    `ExecStart` reflect your choices.
 
    ```
-   cd ~nmea/git/nmea-mqtt-py/systemd
-   sudo cp nmea-mqtt.service /etc/systemd/system
-   sudo nano /etc/systemd/system/nmea-mqtt.service
+   cd ~nmea/git/nmea-logger-py/systemd
+   sudo cp nmea-logger.service /etc/systemd/system
+   sudo nano /etc/systemd/system/nmea-logger.service
    ```
    
-6. Reload the systemd manager to reflect your changes, then start the nmea-mqtt
+6. Reload the systemd manager to reflect your changes, then start the `nmea-logger`
    daemon. Finally, enable the daemon so it will automatically start when the
    system boots.
 
    ```
    sudo systemctl daemon-reload
-   sudo systemctl start nmea-mqtt
-   sudo systemctl enable nmea-mqtt
+   sudo systemctl start nmea-logger
+   sudo systemctl enable nmea-logger
    ```
    
 ## Copyright

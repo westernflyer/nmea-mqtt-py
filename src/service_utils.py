@@ -11,7 +11,7 @@ import sys
 
 RETRYABLE_ERRORS = (OSError, socket.gaierror, TimeoutError, asyncio.TimeoutError)
 
-log = logging.getLogger("nmea-mqtt.utils")
+log = logging.getLogger("nmea-logger.utils")
 
 async def warn_print_sleep(msg: str, config: dict, prefix: str = ""):
     """Print and log a warning message, then sleep for NMEA_RETRY_WAIT seconds."""
