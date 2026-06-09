@@ -1,7 +1,7 @@
 # systemd service configuration file for nmea-logger
 
 [Unit]
-Description=NMEA 0183 to MQTT gateway
+Description=Read NMEA 0183 sentences from sockets, publish to DuckDB and MQTT
 Documentation=https://github.com/westernflyer/nmea-logger-py
 Requires=time-sync.target
 After=time-sync.target
