@@ -11,7 +11,7 @@ One or more sockets can be monitored. See option `NMEA_SOCKETS` under the
 The input is expected to be standard NMEA sentences, possibly with a checksum.
 For example,
 
-```aiignore
+```
 $GPGLL,4202.8367,N,12416.0404,W,123408.8,A,D*44
 $SDDBT,347.24,f,105.84,M,57.87,F*05
 $GPDTM,W84,,0.0000,N,0.0000,E,0,W84*71
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS GLL
 );
 ```
 
-## DuckDB Quack protocol
+### DuckDB Quack protocol
 
 To allow multiple processes to access the DuckDB database concurrently, you can
 enable the [Quack protocol](https://duckdb.org/docs/current/quack/overview).
