@@ -1,4 +1,4 @@
-## nmea-logger-py
+# NMEA 0183 Logger and MQTT Publisher
 
 Read NMEA 0183 sentences from one or more sockets, parse them, then publish to
 MQTT as JSON, and store to a DuckDB database.
@@ -79,11 +79,13 @@ This starts a Quack server within the `nmea-logger` process, which maintains
 primary ownership of the database file while allowing remote connections.
 
 ##### Notice
-The Quack protocol is still in beta and has a few bugs. It also requires DuckDB version 1.5.3 or later.
+The Quack protocol is still in beta and has a few bugs. It also requires DuckDB version 1.5.3 or later. Unfortunately,
+because of the necessity of "attaching" a client to the Quack host, it does not lend itself well to monitoring
+by Grafana and other monitoring tools.
 
 #### Configuration
 
-Example configuration in `config.toml`:
+To enable Quack, set the appropriate options in `config.toml`:
 
 ```toml
 [DUCKDB.QUACK]
@@ -108,7 +110,7 @@ ALLOW_OTHER_HOSTNAME = true
 TOKEN = "secret_token"
 ```
 
-Then from the client:
+In this example, `192.168.0.16` is the IP address of the host. Then from the client:
 
 ```bash
 duckdb -c "ATTACH 'quack:192.168.0.16:9494' AS nmea (TOKEN secret_token); SELECT * FROM nmea.GLL LIMIT 10;"```
